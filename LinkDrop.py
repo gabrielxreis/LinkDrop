@@ -23,7 +23,7 @@ import shutil
 import subprocess
 
 APP_TITLE = "LinkDrop"
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 REPO = "gabrielxreis/LinkDrop"
 RAW_URL = "https://raw.githubusercontent.com/%s/main/LinkDrop.py" % REPO
 INSTAGRAM_URL = "https://instagram.com/gabrielxreis_"
@@ -692,12 +692,13 @@ class Job(Proc):
             base = "%(title).90B [%(id)s]"
         folder = self.folder
         if self.opts.get("subfolders"):
-            folder = os.path.join(folder, re.sub(r'[\\/:*?"<>|]', "-", self.platform))
+            sub = (self.opts.get("subfolder_name") or "").strip() or self.platform
+            folder = os.path.join(folder, re.sub(r'[\\/:*?"<>|]', "-", sub))
         return os.path.join(folder, base + ".%(ext)s")
 
     def _download(self, target):
         self.phase = "downloading"
-        self.status = "Starting"
+        self.status = "Getting video info"
         o = self.opts
         cmd = ytdlp_cmd() + ["--no-playlist", "--newline", "--no-colors", "--windows-filenames",
                "--encoding", "utf-8", "-o", self._template(), "--print", "after_move:FINAL:%(filepath)s",
@@ -1013,6 +1014,11 @@ CSS = {
     "seg_r": (_btn(SURF, radius="0px", pad="8px 22px", extra="border-top-right-radius: 11px; border-bottom-right-radius: 11px;")
               + "QPushButton:hover { color: #FFFFFF; } QPushButton:checked { font-weight: 600; " + SURF_LIT + " }"
               "QPushButton:disabled { color: rgba(245,247,255,0.28); }"),
+    "pill": (_btn(SURF, radius="12px", pad="9px 18px", size=14)
+             + "QPushButton:hover { " + SURF_HOVER + " } QPushButton:checked { " + SURF_LIT + " }"
+             "QPushButton:disabled { color: rgba(245,247,255,0.28); }"),
+    "iconbtn": (_btn(SURF, radius="11px", pad="9px 12px") + "QPushButton:hover { " + SURF_HOVER + " }"
+                "QPushButton:pressed { " + SURF_LIT + " }"),
     "tile": (_btn(SURF, radius="16px", pad="16px 14px", size=13, extra="text-align: left;")
              + "QPushButton:hover { " + SURF_HOVER + " } QPushButton:checked { " + SURF_LIT + " }"),
     "row_l": (_btn(SURF, radius="0px", pad="11px 14px", extra="text-align: left; border-right: none;"
@@ -1028,18 +1034,31 @@ CSS = {
               + "QPushButton:hover { color: %s; } QPushButton:disabled { color: rgba(245,247,255,0.2); }" % B4),
     "link": ("QPushButton { " + FONT + "font-size: 12px; color: %s; background: transparent; border: none; padding: 0px; }"
              "QPushButton:hover { color: %s; }") % (SECONDARY, TEXT),
-    "insta": ("QPushButton { " + FONT + "font-size: 12px; font-weight: 600; color: %s; background: transparent;"
+    "insta": ("QPushButton { " + FONT + "font-size: 14px; font-weight: 600; color: %s; background: transparent;"
               "border: none; padding: 0px; } QPushButton:hover { color: #FFFFFF; }") % B4,
     "sep": "background: rgba(150,190,255,0.10); min-height: 1px; max-height: 1px;",
 }
 
 
-def card_css(state="idle"):
-    """Card surface. idle: navy glass; active: blue light from the bottom; ok / error tinted edges."""
+def card_css(state="idle", glow=None):
+    """Card surface. idle: navy glass; active: blue light from the bottom (glow 0..1 makes it breathe);
+    ok / error tinted edges (glow 0..1 makes a completed card flash)."""
     base = FONT + "padding: 10px 14px; border-radius: 14px; color: %s; " % TEXT
     if state == "active":
-        return base + SURF_LIT.replace("0.55)", "0.30)")
+        if glow is None:
+            return base + SURF_LIT.replace("0.55)", "0.30)")
+        g = min(max(glow, 0.0), 1.0)
+        return base + ("background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(13,26,64,0.95), "
+                       "stop:0.6 rgba(11,44,177,%.2f), stop:1 rgba(25,81,252,%.2f));"
+                       "border: 1px solid qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(150,200,255,%.2f), "
+                       "stop:1 rgba(140,205,255,%.2f));" % (0.18 + 0.12 * g, 0.22 + 0.22 * g, 0.25 + 0.25 * g,
+                                                          0.55 + 0.45 * g))
     if state == "ok":
+        if glow:
+            g = min(max(glow, 0.0), 1.0)
+            return base + ("background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(13,30,40,0.95), "
+                           "stop:1 rgba(22,217,139,%.2f)); border: 1px solid rgba(22,217,139,%.2f);"
+                           % (0.05 + 0.30 * g, 0.30 + 0.65 * g))
         return base + SURF.replace("rgba(105,185,255,0.08)", "rgba(22,217,139,0.30)")
     if state == "error":
         return base + SURF.replace("rgba(105,185,255,0.08)", "rgba(255,71,126,0.45)").replace(
@@ -1063,10 +1082,33 @@ def pill(text, tone, glyph=""):
             '&nbsp;&nbsp;%s%s&nbsp;&nbsp;</span>' % (bg, fg, (glyph + "&nbsp;") if glyph else "", html.escape(text)))
 
 
-def bar_html(frac, height=4, tone=None):
+def bar_html(frac, height=4, tone=None, sheen=None):
+    """Progress bar as table cells. sheen (0..1) slides a soft highlight across the filled part."""
     f = min(max(frac, 0.0), 1.0)
     fill = {"green": SUCCESS, "rose": ERROR}.get(tone, B3)
     cells = []
+    if sheen is not None and tone is None and f <= 0.004:
+        glint = 14
+        left = int(round((100 - glint) * sheen))
+        for w, col in ((left, "#22305A"), (glint, "#5FA8FF"), (100 - glint - left, "#22305A")):
+            if w > 0:
+                cells.append('<td width="%d%%" height="%d" bgcolor="%s" style="font-size:2px;">&nbsp;</td>'
+                             % (w, height, col))
+        return ('<table width="100%%" cellspacing="0" cellpadding="0" style="margin-top:10px;"><tr>%s</tr></table>'
+                % "".join(cells))
+    if sheen is not None and tone is None and f > 0.12:
+        width = round(f * 100)
+        glint = 7
+        left = int(round((width - glint) * sheen))
+        right = width - glint - left
+        for w, col in ((left, fill), (glint, "#A8D8FF"), (right, fill)):
+            if w > 0:
+                cells.append('<td width="%d%%" height="%d" bgcolor="%s" style="font-size:2px;">&nbsp;</td>'
+                             % (w, height, col))
+        if f < 0.996:
+            cells.append('<td height="%d" bgcolor="#22305A" style="font-size:2px;">&nbsp;</td>' % height)
+        return ('<table width="100%%" cellspacing="0" cellpadding="0" style="margin-top:10px;"><tr>%s</tr></table>'
+                % "".join(cells))
     if f > 0.004:
         cells.append('<td width="%d%%" height="%d" bgcolor="%s" style="font-size:2px;">&nbsp;</td>'
                      % (max(1, round(f * 100)), height, fill))
@@ -1082,7 +1124,7 @@ def thumb_html(thumb, icon):
     return img_tag(icon, 30) if icon else ""
 
 
-def card_html(thumb, title, sub, right="", frac=None, tone=None, pct=None, maxlen=52):
+def card_html(thumb, title, sub, right="", frac=None, tone=None, pct=None, maxlen=52, sheen=None):
     """One list card: thumbnail, title, subtitle, a status pill on the right and an optional bar."""
     t = html.escape(title if len(title) <= maxlen else title[:maxlen - 3] + "...")
     s = html.escape(sub if len(sub) <= 70 else sub[:67] + "...")
@@ -1095,7 +1137,7 @@ def card_html(thumb, title, sub, right="", frac=None, tone=None, pct=None, maxle
               ('<td align="right" valign="middle" width="150">%s</td>' % right) if right else ""))
     if frac is None:
         return top
-    return top + bar_html(frac, tone=tone)
+    return top + bar_html(frac, tone=tone, sheen=sheen)
 
 
 def window_css(glow):
@@ -1233,10 +1275,14 @@ class Spring(object):
 
 # pages
 P_LINKS, P_ANALYZE, P_FORMAT, P_REVIEW, P_SETTINGS, P_RUN, P_DONE, P_ERROR = range(8)
-PAGE_DOT = {P_LINKS: 0, P_ANALYZE: 0, P_FORMAT: 1, P_REVIEW: 1, P_SETTINGS: 1, P_RUN: 2, P_ERROR: 2, P_DONE: 3}
+PAGE_DOT = {P_LINKS: 0, P_ANALYZE: 0, P_SETTINGS: 0, P_FORMAT: 1, P_REVIEW: 2, P_RUN: 3, P_ERROR: 3, P_DONE: 3}
+LINK_SIZES = [76, 140, 220]
+LINK_WEIGHTS = [(3.0, 1.0, 3.0), (1.4, 1.6, 1.4), (0.6, 2.4, 0.6)]   # (space above, box, space below)
+LINK_PAGE = [0, 8, 9]   # Pages index of each link-box size   # the link box steps through these heights as links are added
+RUN_SLOTS = 3
 # one stable window size for every step (resizing per step fought Qt's minimum sizes);
 # only the background mini mode is smaller
-W, H, W_MINI, H_MINI = 700, 700, 420, 132
+W, H, W_MINI, H_MINI = 700, 740, 420, 132
 SLOTS = 4
 TARGETS = ["At the playhead", "At the end of the timeline", "In a new timeline", "Media Pool only"]
 
@@ -1259,6 +1305,11 @@ def main():
 
     def sub(id_, text):
         return ui.Label({"ID": id_, "Text": text, "WordWrap": True, "StyleSheet": CSS["sub"], "Weight": 0})
+
+    def icon_btn(id_, icon, tip):
+        return ui.Button({"ID": id_, "Text": "", "StyleSheet": CSS["iconbtn"], "Weight": 0, "ToolTip": tip,
+                          "Icon": ui.Icon({"File": icon_path(icon)}), "IconSize": [18, 18], "MinimumSize": [44, 0],
+                          "MaximumSize": [44, 200]})
 
     def btn(id_, text, kind="secondary", icon=None, visible=True):
         props = {"ID": id_, "Text": text, "StyleSheet": CSS[kind], "Weight": 0}
@@ -1289,24 +1340,34 @@ def main():
         if path:
             props["Icon"] = ui.Icon({"File": path})
             props["IconSize"] = [18, 18]
-        return ui.HGroup({"Weight": 0, "Spacing": 0}, [
+        return ui.HGroup({"Weight": 1, "Spacing": 0}, [
             ui.Button(props),
             ui.Button({"ID": id_ + "Sw", "Text": "", "StyleSheet": CSS["row_r"], "Weight": 0,
                        "Icon": ui.Icon({"File": icon_path("sw_off")}), "IconSize": [44, 27]})])
 
     # ------------------------------------------------------------ screens ---
-    page_links = ui.VGroup({"Spacing": 12}, [
-        h1("H0", "Add links"),
-        sub("S0", "Paste links from your browser, one per line. Add as many as you like."),
-        ui.VGap(6, 0),
-        ui.TextEdit({"ID": "Links", "PlaceholderText": "Paste one or more links, one per line", "AcceptRichText": False,
-                     "StyleSheet": CSS["box"], "MinimumSize": [0, 180], "Weight": 1}),
-        ui.Label({"ID": "Detected", "Text": "", "Alignment": {"AlignHCenter": True}, "Weight": 0}),
-        ui.Label({"ID": "Count", "Text": "", "Alignment": {"AlignHCenter": True}, "StyleSheet": CSS["caption"],
-                  "Weight": 0}),
-        ui.VGap(10, 0),
-        nav(btn("Paste", "  Paste", icon="i_paste"), ui.HGap(0, 1), btn("Next0", "Continue  \u2192", "primary")),
-    ])
+    def links_layout(i):
+        top, box, bottom = LINK_WEIGHTS[i]
+        return ui.VGroup({"Spacing": 12}, [
+            ui.VGap(0, top),
+            ui.Label({"ID": "H0_%d" % i, "Text": "Add links", "StyleSheet": CSS["h1"], "Weight": 0}),
+            ui.Label({"ID": "S0_%d" % i, "Text": "Paste links from your browser, one per line. Add as many as you like.",
+                      "StyleSheet": CSS["sub"], "Weight": 0}),
+            ui.VGap(4, 0),
+            ui.TextEdit({"ID": "Links%d" % i, "PlaceholderText": "Paste one or more links, one per line",
+                         "AcceptRichText": False, "StyleSheet": CSS["box"], "Weight": box,
+                         "MinimumSize": [0, 60]}),
+            ui.VGap(2, 0),
+            ui.Label({"ID": "Detected%d" % i, "Text": "", "Alignment": {"AlignHCenter": True}, "Weight": 0}),
+            ui.Label({"ID": "Count%d" % i, "Text": "", "Alignment": {"AlignHCenter": True}, "StyleSheet": CSS["caption"],
+                      "Weight": 0}),
+            ui.VGap(0, bottom),
+            nav(icon_btn("Paste%d" % i, "i_paste", "Paste from clipboard"),
+                icon_btn("OpenSettings%d" % i, "i_gear", "Settings"),
+                ui.HGap(0, 1), btn("Next0_%d" % i, "Continue  \u2192", "primary")),
+        ])
+
+    link_pages = [links_layout(i) for i in range(len(LINK_SIZES))]
 
     page_analyze = ui.VGroup({"Spacing": 10}, [
         h1("H1", "Analyzing links"),
@@ -1337,28 +1398,26 @@ def main():
     page_format = ui.VGroup({"Spacing": 12}, [
         h1("H2", "Choose format"),
         sub("S2", "Choose the best format for your workflow."),
-        ui.HGroup({"Weight": 0, "Spacing": 0}, [
-            ui.HGap(0, 1),
-            ui.Button({"ID": "SegAudio", "Text": "  Audio", "Checkable": True, "StyleSheet": CSS["seg_l"], "Weight": 0,
-                       "Icon": ui.Icon({"File": icon_path("i_audio")}), "IconSize": [16, 16], "MinimumSize": [150, 0]}),
-            ui.Button({"ID": "SegVideo", "Text": "  Video", "Checkable": True, "StyleSheet": CSS["seg_r"], "Weight": 0,
-                       "Icon": ui.Icon({"File": icon_path("i_video")}), "IconSize": [16, 16], "MinimumSize": [150, 0]}),
-            ui.HGap(0, 1)]),
-        ui.VGap(2, 0),
+        ui.VGap(0, 1),
+        ui.HGroup({"Weight": 0, "Spacing": 10}, [
+            ui.Button({"ID": "SegAudio", "Text": "  Audio", "Checkable": True, "StyleSheet": CSS["pill"], "Weight": 1,
+                       "Icon": ui.Icon({"File": icon_path("i_audio")}), "IconSize": [18, 18]}),
+            ui.Button({"ID": "SegVideo", "Text": "  Video", "Checkable": True, "StyleSheet": CSS["pill"], "Weight": 1,
+                       "Icon": ui.Icon({"File": icon_path("i_video")}), "IconSize": [18, 18]})]),
+        ui.VGap(8, 0),
         ui.Stack({"ID": "FmtStack", "Weight": 0}, [
             ui.VGroup({"Spacing": 12}, [
                 tiles("AF", AUDIO_FORMATS, lambda k: "i_wave" if k == "wav" else "i_music"),
                 quality_row("QualA"),
                 ui.HGroup({"Weight": 0, "Spacing": 10}, [toggle("Art", "Embed artwork", "i_music"),
-                                                          toggle("Meta", "Keep metadata", "i_info")]),
-                ui.VGap(0, 1)]),
+                                                          toggle("Meta", "Keep metadata", "i_info")])]),
             ui.VGroup({"Spacing": 12}, [
                 tiles("VC", VIDEO_CODECS, lambda k: "i_movie" if k == "h264" else "i_prores"),
                 quality_row("QualV"),
                 ui.VGap(0, 1)]),
         ]),
         ui.Label({"ID": "FormatNote", "Text": "", "WordWrap": True, "StyleSheet": CSS["caption"], "Weight": 0,
-                  "MinimumSize": [0, 34]}),
+                  "Alignment": {"AlignHCenter": True}, "MinimumSize": [0, 34]}),
         ui.VGap(0, 1),
         nav(btn("Back2", "  Back", icon="i_back"), ui.HGap(0, 1), btn("Next2", "Continue  \u2192", "primary")),
     ])
@@ -1376,27 +1435,29 @@ def main():
         ui.VGap(0, 1),
         ui.Label({"ID": "ReviewSum", "Text": "", "StyleSheet": card_css("panel"), "Weight": 0, "MinimumSize": [0, 44]}),
         ui.VGap(4, 0),
-        nav(btn("Back3", "  Back", icon="i_back"), ui.HGap(0, 1), btn("Next3", "Continue  \u2192", "primary")),
+        nav(btn("Back3", "  Back", icon="i_back"), ui.HGap(0, 1), btn("Next3", "Start Download  \u2192", "primary")),
     ])
 
-    page_settings = ui.VGroup({"Spacing": 9}, [
-        h1("H4", "Download settings"),
-        sub("S4", "Choose where your files go and how they're organized."),
+    page_settings = ui.VGroup({"Spacing": 7}, [
+        h1("H4", "Settings"),
+        sub("S4", "Where files go and how they're organized. Saved for next time."),
         ui.Label({"Text": "Save to", "StyleSheet": CSS["label"], "Weight": 0}),
         ui.HGroup({"Weight": 0, "Spacing": 0}, [
             ui.LineEdit({"ID": "SavePath", "ReadOnly": True, "StyleSheet": CSS["field_left"], "Weight": 1}),
             ui.Button({"ID": "Browse2", "Text": "Browse", "StyleSheet": CSS["row_r"].replace("6px 12px", "9px 18px"),
                        "Weight": 0})]),
         ui.Label({"Text": "File naming", "StyleSheet": CSS["label"], "Weight": 0}),
-        ui.HGroup({"Weight": 0, "Spacing": 0}, [
-            ui.Button({"ID": "NameOrig", "Text": "Original title", "Checkable": True, "StyleSheet": CSS["seg_l"], "Weight": 1}),
-            ui.Button({"ID": "NameCustom", "Text": "Custom", "Checkable": True, "StyleSheet": CSS["seg_r"], "Weight": 1})]),
+        ui.HGroup({"Weight": 0, "Spacing": 10}, [
+            ui.Button({"ID": "NameOrig", "Text": "Original title", "Checkable": True, "StyleSheet": CSS["pill"], "Weight": 1}),
+            ui.Button({"ID": "NameCustom", "Text": "Custom", "Checkable": True, "StyleSheet": CSS["pill"], "Weight": 1})]),
         ui.Stack({"ID": "NameStack", "Weight": 0}, [
             ui.Label({"Text": "Files keep the title from the source.", "StyleSheet": CSS["caption"], "Weight": 0}),
             ui.LineEdit({"ID": "CustomName", "PlaceholderText": "Name, e.g. Sunday Service (files become Sunday Service 01, 02...)",
                          "StyleSheet": CSS["box"], "Weight": 0})]),
         toggle("Imp", "Import into current Resolve bin", "i_film"),
-        toggle("Sub", "Create subfolders by source", "i_tree"),
+        toggle("Sub", "Create subfolders", "i_tree"),
+        ui.LineEdit({"ID": "SubName", "PlaceholderText": "Subfolder name (optional). Empty: one folder per source, like \"YouTube\"",
+                     "StyleSheet": CSS["box"], "Weight": 0}),
         toggle("Rev", "Reveal in Finder when finished" if not IS_WIN else "Show in Explorer when finished", "i_finder"),
         ui.HGroup({"Weight": 0, "Spacing": 10}, [
             ui.Label({"Text": "Place in timeline", "StyleSheet": CSS["label"], "Weight": 0}),
@@ -1404,28 +1465,26 @@ def main():
             ui.ComboBox({"ID": "Place", "StyleSheet": CSS["combo"], "Weight": 0, "ToolTip": "Where the clip goes"})]),
         ui.Label({"ID": "TargetInfo", "Text": "", "StyleSheet": card_css("panel"), "Weight": 0, "MinimumSize": [0, 44]}),
         ui.VGap(0, 1),
-        nav(btn("Back4", "  Back", icon="i_back"), ui.HGap(0, 1), btn("Start", "Start Download  \u2192", "primary")),
+        nav(ui.HGap(0, 1), btn("SettingsDone", "Done  \u2713", "primary")),
     ])
 
-    page_run = ui.VGroup({"Spacing": 9}, [
+    page_run = ui.VGroup({"Spacing": 10}, [
         h1("H5", "Downloading"),
         sub("S5", "Your media is being prepared for DaVinci Resolve."),
-        ui.Label({"ID": "Overall", "Text": "", "StyleSheet": card_css("panel"), "Weight": 0, "MinimumSize": [0, 70]}),
-    ] + [card("D%d" % i, height=84) for i in range(SLOTS)] + [
+        ui.Label({"ID": "Overall", "Text": "", "StyleSheet": card_css("panel"), "Weight": 0, "MinimumSize": [0, 124]}),
+    ] + [card("D%d" % i, height=92) for i in range(RUN_SLOTS)] + [
         pager("D"),
         ui.VGap(0, 1),
         nav(btn("BgRun", "  Run in Background", icon="i_bg"), ui.HGap(0, 1), btn("CancelAll", "  Cancel All", icon="i_close")),
     ])
 
     page_done = ui.VGroup({"Spacing": 12}, [
-        h1("H6", "All done"),
-        sub("S6", "Your files are ready."),
-        ui.VGap(4, 0),
-        ui.Label({"ID": "DonePanel", "Text": "", "WordWrap": True, "StyleSheet": card_css("panel"), "Weight": 1,
-                  "MinimumSize": [0, 300], "Alignment": {"AlignHCenter": True, "AlignVCenter": True}}),
-        ui.VGap(6, 0),
-        nav(btn("OpenFolder", "  Open Folder", icon="i_folder"), btn("CopyReport", "  Copy Report", icon="i_copy"),
-            ui.HGap(0, 1), btn("DoneBtn", "Done  \u2192", "primary")),
+        ui.VGap(0, 1),
+        ui.Label({"ID": "DonePanel", "Text": "", "WordWrap": True, "StyleSheet": FONT + "background: transparent;",
+                  "Weight": 0, "MinimumSize": [0, 360], "Alignment": {"AlignHCenter": True, "AlignVCenter": True}}),
+        ui.VGap(0, 1),
+        nav(icon_btn("OpenFolder", "i_folder", "Show the files"), icon_btn("CopyReport", "i_copy", "Copy report"),
+            ui.HGap(0, 1), btn("DoneBtn", "Done", "primary")),
     ])
 
     page_error = ui.VGroup({"Spacing": 9}, [
@@ -1446,20 +1505,29 @@ def main():
         "Geometry": [330, 120, W, H],
         "MinimumSize": [W, H], "MaximumSize": [W, H],
         "StyleSheet": window_css(GLOWS["blue"]),
-    }, ui.VGroup({"Spacing": 12}, [
+    }, ui.HGroup({"Spacing": 0}, [
+        ui.HGap(26, 0),
+        ui.VGroup({"Spacing": 0}, [ui.VGap(6, 0), ui.VGroup({"Spacing": 12}, [
         ui.HGroup({"Weight": 0, "Spacing": 10}, [ui.HGap(0, 1)] +
                   [ui.Label({"ID": "Dot%d" % i, "Text": "", "StyleSheet": dot_css(1 if i == 0 else 0), "Weight": 0})
                    for i in range(4)] + [ui.HGap(0, 1)]),
-        ui.Stack({"ID": "Pages", "Weight": 1}, [page_links, page_analyze, page_format, page_review, page_settings,
-                                                page_run, page_done, page_error]),
+        ui.Stack({"ID": "Pages", "Weight": 1}, [link_pages[0], page_analyze, page_format, page_review, page_settings,
+                                                page_run, page_done, page_error] + link_pages[1:]),
         ui.Label({"ID": "Sep", "Text": "", "StyleSheet": CSS["sep"], "Weight": 0}),
-        ui.HGroup({"Weight": 0, "Spacing": 8}, [
-            ui.Button({"ID": "Browse", "Text": "", "Flat": True, "StyleSheet": CSS["link"], "Weight": 0,
-                       "ToolTip": "Where downloads are saved. Click to change."}),
+        ui.HGroup({"Weight": 0, "Spacing": 0}, [
+            ui.HGroup({"Weight": 0, "Spacing": 0, "MinimumSize": [230, 0], "MaximumSize": [230, 40]}, [
+                ui.Button({"ID": "Browse", "Text": "", "Flat": True, "StyleSheet": CSS["link"], "Weight": 0,
+                           "ToolTip": "Where downloads are saved. Click to change."}),
+                ui.HGap(0, 1)]),
             ui.HGap(0, 1),
-            ui.Label({"ID": "Ver", "Text": "", "StyleSheet": CSS["caption"], "Weight": 0}),
             ui.Button({"ID": "Insta", "Text": "@gabrielxreis_", "Flat": True, "StyleSheet": CSS["insta"],
-                       "ToolTip": INSTAGRAM_URL, "Weight": 0})]),
+                       "ToolTip": "Follow on Instagram: " + INSTAGRAM_URL, "Weight": 0}),
+            ui.HGap(0, 1),
+            ui.Label({"ID": "Ver", "Text": "", "StyleSheet": CSS["caption"], "Weight": 0,
+                      "Alignment": {"AlignRight": True, "AlignVCenter": True},
+                      "MinimumSize": [230, 0], "MaximumSize": [230, 40]})]),
+    ]), ui.VGap(10, 0)]),
+        ui.HGap(26, 0),
     ]))
     mini = disp.AddWindow({
         "ID": "LinkDropMini",
@@ -1488,6 +1556,7 @@ def main():
         "vcodec": S("vcodec", "h264"), "max_h": S("max_h", 1080), "keep_meta": bool(S("keep_meta", True)),
         "embed_art": bool(S("embed_art", True)), "custom": bool(S("custom", False)), "custom_name": S("custom_name", ""),
         "import": bool(S("import", True)), "subfolders": bool(S("subfolders", False)), "reveal": bool(S("reveal", False)),
+        "subname": S("subname", ""), "return_page": P_LINKS, "box": 0, "sync": False, "done_note": "",
         "target": int(S("target", 0)), "folder": S("folder") or DEFAULT_FOLDER,
         "page": P_LINKS, "items": [], "analyzers": [], "pages": {"A": 0, "R": 0, "D": 0, "E": 0}, "follow": True,
         "current": None, "cursor": None, "stopped": False, "mini": False, "finished": False, "imported_to": None,
@@ -1502,7 +1571,7 @@ def main():
 
     def save_all():
         keys = ("mode", "audio_fmt", "audio_q", "vcodec", "max_h", "keep_meta", "embed_art", "custom", "custom_name",
-                "import", "subfolders", "reveal", "target", "folder")
+                "import", "subfolders", "reveal", "target", "folder", "subname")
         save_settings({k: st[k] for k in keys})
 
     def lock_size(w, h):
@@ -1561,7 +1630,7 @@ def main():
             sp["check"].step(dt)
             render_done()
         if st["pending"] is not None and sp["opacity"].value <= st["fade"] + 0.03:
-            itm["Pages"].CurrentIndex = st["pending"]
+            itm["Pages"].CurrentIndex = LINK_PAGE[st["box"]] if st["pending"] == P_LINKS else st["pending"]
             st["pending"] = None
             sp["opacity"].target = 1.0
 
@@ -1573,10 +1642,43 @@ def main():
         txt = run(["powershell", "-NoProfile", "-Command", "Get-Clipboard"], 5) if IS_WIN else run(["pbpaste"], 3)
         return list(dict.fromkeys(u.rstrip(",;") for u in URL_RE.findall(txt or "")))
 
+    def box_id():
+        return "Links%d" % st["box"]
+
+    def links_text():
+        return itm[box_id()].PlainText or ""
+
+    def set_links_text(t):
+        st["sync"] = True
+        for i in range(len(LINK_SIZES)):
+            itm["Links%d" % i].PlainText = t
+        st["sync"] = False
+        refresh_links()
+
     def links_in_box():
-        return list(dict.fromkeys(u.strip().rstrip(",;") for u in URL_RE.findall(itm["Links"].PlainText or "")))
+        return list(dict.fromkeys(u.strip().rstrip(",;") for u in URL_RE.findall(links_text())))
+
+    def on_links_changed(i):
+        if st.get("sync") or i != st["box"]:
+            return
+        refresh_links()
 
     def refresh_links(ev=None):
+        text = links_text()
+        lines = len([l for l in text.split("\n") if l.strip()])
+        want = 0 if lines <= 2 else (1 if lines <= 5 else 2)
+        if want != st["box"]:
+            # move to the next box size: same text, same centered composition, one size up/down
+            st["sync"] = True
+            itm["Links%d" % want].PlainText = text
+            st["sync"] = False
+            st["box"] = want
+            if st["page"] == P_LINKS and st["pending"] is None:
+                itm["Pages"].CurrentIndex = LINK_PAGE[want]
+            try:
+                itm["Links%d" % want].SetFocus()
+            except Exception:
+                pass
         urls = links_in_box()
         icons = []
         for u in urls:
@@ -1584,20 +1686,23 @@ def main():
             if ic and ic not in icons:
                 icons.append(ic)
         if urls:
-            itm["Detected"].Text = "&nbsp;&nbsp;".join(img_tag(i, 20) for i in icons[:8])
-            itm["Count"].Text = "1 link ready" if len(urls) == 1 else "%d links ready" % len(urls)
+            det = "&nbsp;&nbsp;".join(img_tag(i, 20) for i in icons[:8])
+            cnt = "1 link ready" if len(urls) == 1 else "%d links ready" % len(urls)
         else:
-            itm["Detected"].Text = "&nbsp;&nbsp;".join(img_tag(n, 20) for n in SHOWCASE)
-            itm["Count"].Text = "YouTube, Instagram, TikTok, X, Spotify and 1,000+ more sites"
-        itm["Next0"].Enabled = bool(urls)
+            det = "&nbsp;&nbsp;".join(img_tag(n, 20) for n in SHOWCASE)
+            cnt = "YouTube, Instagram, TikTok, X, Spotify and 1,000+ more sites"
+        itm["Detected%d" % st["box"]].Text = det
+        itm["Count%d" % st["box"]].Text = cnt
+        for _k in range(len(LINK_SIZES)):
+            itm["Next0_%d" % _k].Enabled = bool(urls)
 
     def on_paste(ev):
         urls = read_clipboard()
         if urls:
-            cur = (itm["Links"].PlainText or "").strip()
-            itm["Links"].PlainText = (cur + "\n" if cur else "") + "\n".join(urls)
+            cur = links_text().strip()
+            set_links_text((cur + "\n" if cur else "") + "\n".join(urls))
         else:
-            itm["Count"].Text = "Your clipboard doesn't have a link. Copy one in your browser first."
+            itm["Count%d" % st["box"]].Text = "Your clipboard doesn't have a link. Copy one in your browser first."
 
     # -------------------------------------------------------- 2. analyze ---
     def start_analysis(ev=None):
@@ -1669,8 +1774,14 @@ def main():
             cid = "%s%d" % (prefix, i)
             if k < len(rows):
                 text, state = render(rows[k], k)
+                glow = None
+                if isinstance(state, tuple):
+                    state, glow = state
+                css = card_css(state, glow)
                 itm[cid].Text = text
-                itm[cid].StyleSheet = card_css(state)
+                if st.setdefault("css_cache", {}).get(cid) != css:
+                    st["css_cache"][cid] = css
+                    itm[cid].StyleSheet = css
                 show(cid, True)
             else:
                 show(cid, False)
@@ -1815,6 +1926,7 @@ def main():
         o = {"audio": item_audio(e), "audio_fmt": st["audio_fmt"], "audio_q": st["audio_q"],
              "keep_meta": st["keep_meta"], "embed_art": st["embed_art"] and st["audio_fmt"] != "wav",
              "max_h": st["max_h"] or None, "vcodec": st["vcodec"], "subfolders": st["subfolders"],
+             "subfolder_name": st["subname"],
              "duration": e["a"].duration(), "origin": e["a"].url, "matched": e["a"].matched, "name": None}
         if st["custom"] and st["custom_name"].strip() and index is not None:
             base = re.sub(r'[\\/:*?"<>|]', "-", st["custom_name"].strip())
@@ -1886,6 +1998,7 @@ def main():
         itm["NameStack"].CurrentIndex = 1 if st["custom"] else 0
         set_switch("Imp", st["import"])
         set_switch("Sub", st["subfolders"])
+        itm["SubName"].Enabled = st["subfolders"]
         set_switch("Rev", st["reveal"])
         itm["Place"].CurrentIndex = st["target"]
         itm["Place"].Enabled = st["import"]
@@ -1912,8 +2025,17 @@ def main():
         itm["Browse"].Text = "Save to " + ("~" + path[len(HOME):] if path.startswith(HOME) else path)
 
     def to_settings(ev=None):
+        st["return_page"] = st["page"]
+        itm["SubName"].Text = st["subname"]
+        itm["CustomName"].Text = st["custom_name"]
         refresh_settings()
         go(P_SETTINGS)
+
+    def close_settings(ev=None):
+        st["custom_name"] = itm["CustomName"].Text or ""
+        st["subname"] = itm["SubName"].Text or ""
+        save_all()
+        go(st["return_page"] if st["return_page"] != P_SETTINGS else P_LINKS)
 
     def on_browse(ev):
         d = fusion.RequestDir(st["folder"])
@@ -1927,7 +2049,6 @@ def main():
         return [e for e in st["items"] if e["selected"]]
 
     def start_downloads(ev=None):
-        st["custom_name"] = itm["CustomName"].Text or ""
         save_all()
         sel = run_items()
         for i, e in enumerate(sel):
@@ -1967,10 +2088,15 @@ def main():
         spin = SPIN[st["spin"] % 4]
         job = e["job"]
         s = e["state"]
+        glow, sheen = None, None
+        now = time.time()
         if s == "completed":
             label = "Imported" if e["placed"] else "Saved"
             right, tone, state = pill(label, "green", "\u2713"), "green", "ok"
             frac, pct = 1.0, "100%"
+            age = now - e.get("done_t", 0)
+            if age < 0.9 and not calm:
+                glow = 1.0 - age / 0.9
         elif s == "failed":
             right, tone, state = pill("Failed", "rose", "\u2715"), "rose", "error"
             frac, pct = item_percent(e) / 100.0 if job else 0.0, ""
@@ -1980,23 +2106,39 @@ def main():
             name = {"importing": "Importing"}.get(s) or ("Converting" if job and job.phase == "converting" else "Downloading")
             frac = (job.percent if job else 0) / 100.0
             pct = "%d%%" % int(frac * 100)
-            right, tone, state = pill("%s  %s" % (name, pct), "blue", spin), None, "active"
+            label = "%s  %s" % (name, pct) if frac > 0 or name != "Downloading" else "Getting info"
+            right, tone, state = pill(label, "blue", spin), None, "active"
+            if not calm:
+                import math
+                glow = 0.5 + 0.5 * math.sin(now * 2 * math.pi / 1.8)
+                sheen = (now % 1.6) / 1.6
         title = short_title(e["path"]) if e["path"] else a.title()
         subline = (e["error"] if s == "failed" and e["error"] else
                    (job.status if s in ("downloading", "importing") and job else format_label(e)))
-        return card_html(thumb_html(a.thumb, a.icon), title, subline, right, frac=frac, tone=tone, pct=pct), state
+        return (card_html(thumb_html(a.thumb, a.icon), title, subline, right, frac=frac, tone=tone, pct=pct, sheen=sheen),
+                (state, glow))
 
     def render_run():
         items = run_items()
         if st["follow"] and st["current"] in items:
-            st["pages"]["D"] = items.index(st["current"]) // SLOTS
-        render_list("D", items, SLOTS, download_card)
+            st["pages"]["D"] = items.index(st["current"]) // RUN_SLOTS
+        render_list("D", items, RUN_SLOTS, download_card)
         springs["overall"].target = overall_percent()
-        p = max(0.0, springs["overall"].value)
+        p = min(100.0, max(0.0, springs["overall"].value))
         done_n = len([e for e in items if e["state"] in ("completed", "failed")])
-        itm["Overall"].Text = ('<span style="font-size:15px; color:%s; font-weight:600;">Overall progress \u2014 %d%%</span>'
-                               '<span style="font-size:12px; color:%s;">&nbsp;&nbsp;&nbsp;%d of %d files</span>%s'
-                               % (TEXT, int(p), SECONDARY, done_n, len(items), bar_html(p / 100.0, height=6)))
+        cur = st["current"]
+        detail = cur["job"].status if cur and cur["job"] and cur["job"].status not in ("Queued", "Starting") else (
+            "Finishing up" if st["finished"] else "Getting video info")
+        sheen = None if calm or st["finished"] else (time.time() % 1.8) / 1.8
+        itm["Overall"].Text = (
+            '<table width="100%%" cellspacing="0" cellpadding="0"><tr>'
+            '<td valign="bottom"><span style="font-size:40px; font-weight:700; color:%s;">%d</span>'
+            '<span style="font-size:20px; font-weight:600; color:%s;">%%</span><br>'
+            '<span style="font-size:12px; color:%s;">Overall progress</span></td>'
+            '<td align="right" valign="bottom"><span style="font-size:14px; font-weight:600; color:%s;">%d of %d files</span><br>'
+            '<span style="font-size:12px; color:%s;">%s</span></td></tr></table>%s'
+            % (TEXT, int(p), B4, SECONDARY, TEXT, done_n, len(items), SECONDARY, html.escape(detail[:60]),
+               bar_html(p / 100.0, height=8, sheen=sheen)))
         mitm["MiniTitle"].Text = "Downloading %d of %d" % (min(done_n + 1, len(items)), len(items)) \
             if not st["finished"] else "Finished"
         mitm["MiniPct"].Text = "%d%%" % int(p)
@@ -2027,10 +2169,12 @@ def main():
                         e["error"] = str(ex)
                         e["placed"] = None
                 e["state"] = "completed"
+                e["done_t"] = time.time()
             next_job()
 
     def finish_all():
         st["finished"] = True
+        st["done_note"] = ""
         show(["BgRun", "CancelAll"], False)
         items = run_items()
         ok = [e for e in items if e["state"] == "completed"]
@@ -2095,24 +2239,34 @@ def main():
         items = [e for e in run_items() if e["state"] == "completed"]
         imported = [e for e in items if e["placed"]]
         scale = max(0.05, springs["check"].value)
-        size = int(round(84 * scale))
+        size = int(round(96 * scale))
         n = len(items)
         if imported and st["imported_to"]:
             head = "%d file%s ready in Resolve" % (n, "s" if n != 1 else "")
-            where = "Imported to: %s &gt; Media Pool &gt; %s" % (html.escape(st["imported_to"][0]),
-                                                                 html.escape(st["imported_to"][1]))
-            itm["S6"].Text = "Files successfully imported into DaVinci Resolve."
+            where = "Imported to %s &nbsp;\u203a&nbsp; Media Pool &nbsp;\u203a&nbsp; %s" % (
+                html.escape(st["imported_to"][0]), html.escape(st["imported_to"][1]))
         else:
             head = "%d file%s saved" % (n, "s" if n != 1 else "")
             path = st["folder"]
-            where = "Saved to: %s" % html.escape("~" + path[len(HOME):] if path.startswith(HOME) else path)
-            itm["S6"].Text = "Your files are ready."
-        itm["DonePanel"].Text = ('<div align="center"><img src="%s" width="%d" height="%d"></div>'
-                                 '<div align="center" style="margin-top:4px;"><span style="font-size:22px; font-weight:700;'
-                                 ' color:%s;">%s</span></div>%s'
-                                 '<div align="center" style="margin-top:6px;"><span style="font-size:12px; color:%s;">%s'
-                                 '</span></div>' % (icon_path("big_ok").replace("\\", "/"), size, size, TEXT,
-                                                    head, summary_chips(items), SECONDARY, where))
+            where = "Saved to %s" % html.escape("~" + path[len(HOME):] if path.startswith(HOME) else path)
+        groups = {}
+        for e in items:
+            key = (e["a"].icon, "audio" if e["opts"]["audio"] else "video", e["a"].platform)
+            groups[key] = groups.get(key, 0) + 1
+        chips = "&nbsp;&nbsp;&nbsp;".join(
+            '%s&nbsp;<span style="font-size:13px; color:%s;">%d %s%s</span>'
+            % (img_tag(icon, 16) if icon else "", SECONDARY, c, kind, "s" if c > 1 else "")
+            for (icon, kind, _), c in list(groups.items())[:4])
+        note = ('<div align="center" style="margin-top:14px;"><span style="font-size:12px; color:%s;">%s</span></div>'
+                % (B4, html.escape(st["done_note"])) if st["done_note"] else "")
+        itm["DonePanel"].Text = (
+            '<div align="center"><img src="%s" width="%d" height="%d"></div>'
+            '<div align="center" style="margin-top:10px;"><span style="font-size:30px; font-weight:700; color:%s;">'
+            'All done</span></div>'
+            '<div align="center" style="margin-top:6px;"><span style="font-size:16px; color:%s;">%s</span></div>'
+            '<div align="center" style="margin-top:18px;">%s</div>'
+            '<div align="center" style="margin-top:14px;"><span style="font-size:12px; color:%s;">%s</span></div>%s'
+            % (icon_path("big_ok").replace("\\", "/"), size, size, TEXT, TEXT, head, chips, SECONDARY, where, note))
 
     def error_card(e, k):
         a = e["a"]
@@ -2162,7 +2316,8 @@ def main():
 
     def on_copy_report(ev):
         ok = copy_text(report_text())
-        itm["S6"].Text = "Report copied to your clipboard." if ok else "Couldn't copy the report."
+        st["done_note"] = "Report copied to your clipboard." if ok else "Couldn't copy the report."
+        render_done()
 
     def on_report_issue(ev):
         import urllib.parse
@@ -2205,8 +2360,7 @@ def main():
 
     def reset(ev=None):
         st.update({"items": [], "analyzers": [], "current": None, "finished": False, "stopped": False})
-        itm["Links"].PlainText = ""
-        refresh_links()
+        set_links_text("")
         set_glow("blue")
         go(P_LINKS)
 
@@ -2226,7 +2380,7 @@ def main():
             render_analyze()
         if st["current"]:
             tick_downloads()
-            if spin_tick or st["current"] is None:
+            if st["page"] == P_RUN or spin_tick or st["current"] is None:
                 render_run()
         elif st["page"] == P_RUN and not springs["overall"].settled():
             render_run()
@@ -2249,9 +2403,12 @@ def main():
     # -------------------------------------------------------------- events ---
     on = win.On
     on.LinkDropWin.Close = on_close
-    on.Links.TextChanged = refresh_links
-    on.Paste.Clicked = on_paste
-    on.Next0.Clicked = start_analysis
+    for _i in range(len(LINK_SIZES)):
+        on["Links%d" % _i].TextChanged = (lambda i: (lambda ev: on_links_changed(i)))(_i)
+    for _i in range(len(LINK_SIZES)):
+        on["Paste%d" % _i].Clicked = on_paste
+        on["OpenSettings%d" % _i].Clicked = lambda ev: to_settings()
+        on["Next0_%d" % _i].Clicked = lambda ev: start_analysis()
     on.Back1.Clicked = lambda ev: go(P_LINKS)
     on.Next1.Clicked = to_format
     on.SegAudio.Clicked = lambda ev: pick("mode", 1)
@@ -2275,14 +2432,15 @@ def main():
         on[_p + "Prev"].Clicked = (lambda p, r: (lambda ev: page_step(p, -1, r)))(_p, _r)
         on[_p + "Next"].Clicked = (lambda p, r: (lambda ev: page_step(p, 1, r)))(_p, _r)
     on.Back3.Clicked = lambda ev: go(P_FORMAT)
-    on.Next3.Clicked = to_settings
+    on.Next3.Clicked = start_downloads
+    on.SettingsDone.Clicked = close_settings
+    on.CustomName.TextChanged = lambda ev: (st.update({"custom_name": itm["CustomName"].Text or ""}), save_all())
+    on.SubName.TextChanged = lambda ev: (st.update({"subname": itm["SubName"].Text or ""}), save_all())
     on.Browse2.Clicked = on_browse
     on.Browse.Clicked = on_browse
     on.NameOrig.Clicked = lambda ev: (st.update({"custom": False}), refresh_settings(), save_all())
     on.NameCustom.Clicked = lambda ev: (st.update({"custom": True}), refresh_settings(), save_all())
     on.Place.CurrentIndexChanged = lambda ev: (st.update({"target": itm["Place"].CurrentIndex}), save_all())
-    on.Back4.Clicked = lambda ev: go(P_REVIEW)
-    on.Start.Clicked = start_downloads
     on.BgRun.Clicked = on_background
     on.CancelAll.Clicked = on_cancel_all
     mini.On.Expand.Clicked = on_expand
@@ -2298,19 +2456,18 @@ def main():
 
     # ---------------------------------------------------------------- start ---
     if IS_WIN:
-        itm["OpenFolder"].Text = "  Open Folder"
+        itm["OpenFolder"].ToolTip = "Show in Explorer"
     itm["Pages"].CurrentIndex = P_LINKS
     refresh_format()
     refresh_settings()
     itm["CustomName"].Text = st["custom_name"]
-    itm["Ver"].Text = ("Updated to %s  \u2022" if globals().get("_LINKDROP_UPDATED_FROM") else "v%s  \u2022") % VERSION
+    itm["Ver"].Text = ("Updated to v%s" if globals().get("_LINKDROP_UPDATED_FROM") else "v%s") % VERSION
     refresh_folder()
     urls = read_clipboard()
-    if urls:
-        itm["Links"].PlainText = "\n".join(urls)
-    refresh_links()
+    set_links_text("\n".join(urls) if urls else "")
 
     win.WindowOpacity = 0.0
+    itm["Pages"].CurrentIndex = LINK_PAGE[st["box"]]
     win.Show()
     lock_size(W, H)
     springs["opacity"].target = 1.0
@@ -2323,6 +2480,74 @@ def main():
 # Platform logos (from Simple Icons, CC0), embedded so updates carry them.
 
 ICONS = {
+    "i_gear": (
+        "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"
+    ),
     "chk_on": (
         "iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAG/0lEQVR4nNRZCWxUVRQ99/1ppysFqYBFCQpBUalb3SIRNbhr"
         "IkrqHndcYpSoUWNUXKKJMW6IiEYIgQgVTBAwakATQFBABNmkRpYCllBomS5DmenM/9f7Z/nzZvkzJUyL3syf98+/79533vv3"

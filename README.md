@@ -6,13 +6,14 @@ LinkDrop is a DaVinci Resolve script that downloads videos or audio from links a
 
 ## How it works
 
-1. **Add links.** Paste one or more links, one per line. A link you copied before opening LinkDrop is already there.
+1. **Add links.** Paste one or more links, one per line. The box grows as you add more. A link you copied before opening LinkDrop is already there.
 2. **Analyzing links.** LinkDrop reads each link's real title, duration, thumbnail and available resolutions. A broken link never blocks the rest.
-3. **Choose format.** Audio: MP3, WAV or AAC, with quality, Keep metadata and Embed artwork. Video: H.264 (MP4) or ProRes 422 (MOV, converted after download), with only the resolutions the sources really offer.
-4. **Review items.** Pick what to download, switch single items between video and audio, and see the estimated size.
-5. **Download settings.** Folder, original or custom file names, import into the current Resolve bin, subfolders by source, reveal when finished, and where the clip goes (playhead on a free track, end of timeline, new timeline or Media Pool only).
-6. **Downloading.** Real progress for every file. **Run in Background** shrinks LinkDrop to a small progress window.
-7. **All done** or **Some files need attention**, with Open Folder, Copy Report, Report Issue and Retry Failed.
+3. **Choose format.** Audio: MP3, WAV or AAC, with quality, Keep metadata and Embed artwork. Video: H.264 (MP4) or ProRes 422 (MOV), with only the resolutions the sources really offer.
+4. **Review items.** Pick what to download, switch single items between video and audio, see the estimated size, then **Start Download**.
+5. **Downloading.** Real progress for every file. **Run in Background** shrinks LinkDrop to a small progress window.
+6. **All done** or **Some files need attention**, with Open Folder, Copy Report, Report Issue and Retry Failed.
+
+**Settings** (gear button on the first screen, saved for next time): download folder, original or custom file names, import into the current Resolve bin, subfolders (with an optional fixed name), reveal when finished, and where the clip goes in the timeline.
 
 ## Supported sites
 
