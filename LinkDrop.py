@@ -23,7 +23,7 @@ import shutil
 import subprocess
 
 APP_TITLE = "LinkDrop"
-VERSION = "2.3.1"
+VERSION = "2.3.2"
 REPO = "gabrielxreis/LinkDrop"
 RAW_URL = "https://raw.githubusercontent.com/%s/main/LinkDrop.py" % REPO
 INSTAGRAM_URL = "https://instagram.com/gabrielxreis_"
@@ -1345,9 +1345,10 @@ def main():
                          "AcceptRichText": False, "StyleSheet": CSS["box"], "Weight": box,
                          "MinimumSize": [0, 60]}),
             ui.VGap(2, 0),
-            ui.Label({"ID": "Detected%d" % i, "Text": "", "Alignment": {"AlignHCenter": True}, "Weight": 0}),
+            ui.Label({"ID": "Detected%d" % i, "Text": "", "Alignment": {"AlignHCenter": True, "AlignVCenter": True},
+                      "Weight": 0, "MinimumSize": [0, 30]}),
             ui.Label({"ID": "Count%d" % i, "Text": "", "Alignment": {"AlignHCenter": True}, "StyleSheet": CSS["caption"],
-                      "Weight": 0}),
+                      "Weight": 0, "MinimumSize": [0, 20]}),
             ui.VGap(0, bottom),
             nav(icon_btn("Paste%d" % i, "i_paste", "Paste from clipboard"),
                 icon_btn("OpenSettings%d" % i, "i_gear", "Settings"),
