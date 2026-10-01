@@ -76,6 +76,12 @@ switch ($Step) {
             } catch { }
         }
         if (-not $got) { Fail "Couldn't download Python 3. Check your internet connection and try again." }
+        # a per-user copy of the same version makes the Python installer silently "repair" it and ignore
+        # InstallAllUsers, so remove that copy first (it belongs to this user: no permission needed)
+        $userPy = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
+        if (Test-Path $userPy) {
+            Start-Process -FilePath $py -ArgumentList "/quiet /uninstall" -Wait | Out-Null
+        }
         # all-users install (Windows asks for permission once): Resolve doesn't see per-user Python
         try {
             $p = Start-Process -FilePath $py -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_launcher=1" -Verb RunAs -Wait -PassThru
