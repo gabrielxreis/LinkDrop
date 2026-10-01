@@ -28,15 +28,16 @@ function Get-File($url, $out) {
     Fail "Couldn't download $url. Check your internet connection and try again."
 }
 function Test-Python {
-    foreach ($cmd in @("py", "python", "python3")) {
-        try {
-            $v = & $cmd --version 2>&1
-            if ($LASTEXITCODE -eq 0 -and "$v" -match "Python 3") { return $true }
-        } catch { }
-    }
-    foreach ($root in @("HKCU:\Software\Python\PythonCore", "HKLM:\Software\Python\PythonCore")) {
+    # DaVinci Resolve on Windows only lists .py scripts when Python 3 (64-bit) is installed for ALL users
+    foreach ($root in @("HKLM:\Software\Python\PythonCore", "HKLM:\Software\WOW6432Node\Python\PythonCore")) {
         if (Test-Path $root) {
-            if (Get-ChildItem $root | Where-Object { $_.PSChildName -like "3.*" }) { return $true }
+            foreach ($v in (Get-ChildItem $root | Where-Object { $_.PSChildName -like "3.*" })) {
+                $ip = Join-Path $v.PSPath "InstallPath"
+                if (Test-Path $ip) {
+                    $dir = (Get-ItemProperty $ip -ErrorAction SilentlyContinue)."(default)"
+                    if ($dir -and (Test-Path (Join-Path $dir "python.exe"))) { return $true }
+                }
+            }
         }
     }
     return $false
@@ -75,8 +76,12 @@ switch ($Step) {
             } catch { }
         }
         if (-not $got) { Fail "Couldn't download Python 3. Check your internet connection and try again." }
-        $p = Start-Process -FilePath $py -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1" -Wait -PassThru
-        if ($p.ExitCode -ne 0) { Fail "Python wasn't installed (code $($p.ExitCode)). Install it from python.org and run this again." }
+        # all-users install (Windows asks for permission once): Resolve doesn't see per-user Python
+        try {
+            $p = Start-Process -FilePath $py -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_launcher=1" -Verb RunAs -Wait -PassThru
+        } catch { Fail "Python needs your permission to install. Run the installer again and click Yes when Windows asks." }
+        if ($p.ExitCode -ne 0) { Fail "Python wasn't installed (code $($p.ExitCode)). Run the installer again." }
+        if (-not (Test-Python)) { Fail "Python was installed but DaVinci Resolve won't see it. Install Python 3 for all users from python.org." }
         exit 0
     }
     "ytdlp" {
