@@ -936,36 +936,16 @@ def place_in_resolve(path, target, cursor=None):
 
 
 # --------------------------------------------------------------- license ---
-# One key per computer. The server (Supabase edge functions) signs a token with its RSA private key;
-# LinkDrop checks it with the public key below, so it keeps working offline for a few days.
+# Licensing API on the LinkDrop site (one key per computer, 24 h trial once per computer).
+# The last good answer is stored locally, encrypted with a key derived from this computer, so LinkDrop
+# keeps working offline for OFFLINE_GRACE_DAYS and the file is useless if copied to another PC.
 
-LICENSE_API = "https://gveupqzeqnkixudcrvxl.supabase.co/functions/v1"
+LICENSE_API = "https://linkdrop.gabrielxreis.com/api/public"
 LICENSE_SITE = "https://linkdrop.gabrielxreis.com"
-LICENSE_PATH = os.path.join(DATA_DIR, "license.json")
-LICENSE_N = int(
-    "0xc990c78d2e1f022257cdbfd651c15d0096c405a97942145133637a01139191fd98b3431fb081fd3aa9d630570ba366a95e646f9078c01dba6cc4679b00187ddad697043c45bf39ec2669671fefbd43ff64b3eef13aeff8d473789fe0730f55088da1013c64a3f710bb8aa585b5c73ea96e17d2f7ad8c9fbd8285b54f3f8df07e0dce594d1b63ee9c72cad9e99ba14f333667cfc62b100ddb334537b3ec30dedafd8004d74f43963560444d57122fb2855d140019d1485763b0a7ae7cc1dc135d87102adfd549cb44ed59ffa8bb202c71dab6359025d1746f1ecd80e650fbb9d28a7ebb288ad3914d20bb56289713ec2c5f777133b3729e0972307cb18ae4a26b", 16)
-LICENSE_E = 65537
+LICENSE_PATH = os.path.join(DATA_DIR, "license.dat")
+OFFLINE_GRACE_DAYS = 7
 PRICE_TEXT = "R$ 19,90 / year"
-
-
-def _b64url_dec(s):
-    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
-
-
-def verify_license_token(token):
-    """Returns the token's payload when the RSA signature (PKCS#1 v1.5, SHA-256) is valid, else None."""
-    try:
-        import hashlib
-        body_b64, sig_b64 = token.split(".")
-        body = _b64url_dec(body_b64)
-        size = (LICENSE_N.bit_length() + 7) // 8
-        em = pow(int.from_bytes(_b64url_dec(sig_b64), "big"), LICENSE_E, LICENSE_N).to_bytes(size, "big")
-        info = bytes.fromhex("3031300d060960864801650304020105000420") + hashlib.sha256(body).digest()
-        if em != b"\x00\x01" + b"\xff" * (size - 3 - len(info)) + b"\x00" + info:
-            return None
-        return json.loads(body.decode("utf-8"))
-    except Exception:
-        return None
+LOCKED_STATUSES = ("expired", "revoked", "invalid", "disabled", "not_found", "inactive")
 
 
 _MACHINE = []
@@ -998,10 +978,32 @@ def machine_name():
     return run(["scutil", "--get", "ComputerName"], 5).strip() or "Mac"
 
 
+def _license_cipher(data, salt):
+    """XOR with a SHA-256 keystream bound to this computer (keeps the key unreadable and per-machine)."""
+    import hashlib
+    seed = ("linkdrop-license:" + machine_id()).encode() + salt
+    out = bytearray()
+    block = 0
+    while len(out) < len(data):
+        out.extend(hashlib.sha256(seed + block.to_bytes(4, "big")).digest())
+        block += 1
+    return bytes(a ^ b for a, b in zip(data, out))
+
+
+def _license_mac(blob):
+    import hmac, hashlib
+    return hmac.new(("linkdrop-mac:" + machine_id()).encode(), blob, hashlib.sha256).digest()
+
+
 def load_license():
     try:
-        with open(LICENSE_PATH, encoding="utf-8") as f:
-            return json.load(f)
+        with open(LICENSE_PATH, "rb") as f:
+            raw = base64.b64decode(f.read())
+        salt, mac, blob = raw[:16], raw[16:48], raw[48:]
+        import hmac
+        if not hmac.compare_digest(mac, _license_mac(salt + blob)):
+            return {}
+        return json.loads(_license_cipher(blob, salt).decode("utf-8"))
     except Exception:
         return {}
 
@@ -1009,39 +1011,71 @@ def load_license():
 def save_license(data):
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
-        with open(LICENSE_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f)
+        salt = os.urandom(16)
+        blob = _license_cipher(json.dumps(data).encode("utf-8"), salt)
+        with open(LICENSE_PATH, "wb") as f:
+            f.write(base64.b64encode(salt + _license_mac(salt + blob) + blob))
     except Exception:
         pass
 
 
+def clear_license():
+    try:
+        os.remove(LICENSE_PATH)
+    except Exception:
+        pass
+
+
+def parse_time(value):
+    """ISO 8601 (as the API sends it) -> epoch seconds; 0 when missing or unreadable."""
+    if not value:
+        return 0
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        from datetime import datetime
+        v = str(value).strip().replace("Z", "+00:00")
+        if "." in v:  # trim fractions Python's fromisoformat may reject
+            head, _, tail = v.partition(".")
+            frac = re.match(r"\d*", tail).group(0)
+            v = head + "." + (frac[:6].ljust(6, "0")) + tail[len(frac):]
+        return datetime.fromisoformat(v).timestamp()
+    except Exception:
+        return 0
+
+
+def mask_key(key):
+    parts = (key or "").split("-")
+    if len(parts) < 3:
+        return "\u2022\u2022\u2022\u2022"
+    return "-".join([parts[0]] + ["\u2022\u2022\u2022\u2022"] * (len(parts) - 2) + [parts[-1]])
+
+
 def license_state(data=None):
-    """('ok', payload) when this computer holds a valid, unexpired, correctly signed token;
-    otherwise (reason, payload or None). Reasons: none | invalid | other_machine | expired | stale."""
+    """('ok', data) when the saved license is active and was confirmed recently; otherwise (reason, data).
+    Reasons: none | expired | stale (offline longer than the grace period) | locked."""
     data = load_license() if data is None else data
-    tok = data.get("token")
-    if not tok:
-        return "none", None
-    p = verify_license_token(tok)
-    if not p:
-        return "invalid", None
-    if p.get("machine") != machine_id():
-        return "other_machine", p
+    if not data.get("mode"):
+        return "none", data
     now = time.time()
-    if now >= p.get("expires", 0):
-        return "expired", p
-    if now >= p.get("valid_until", 0):
-        return "stale", p      # needs a check with the server (offline too long)
-    return "ok", p
+    if data.get("status") in LOCKED_STATUSES:
+        return "locked", data
+    if data.get("expires") and now >= data["expires"]:
+        return "expired", data
+    if now - data.get("checked", 0) > OFFLINE_GRACE_DAYS * 86400:
+        return "stale", data
+    return "ok", data
 
 
 class ApiCall(Proc):
-    """POSTs JSON to a license function with curl, without blocking Resolve. result: dict or None."""
+    """POSTs JSON to the licensing API with curl, without blocking Resolve.
+    result: the decoded JSON (dict) or None when the server couldn't be reached."""
 
     def __init__(self, name, body):
         Proc.__init__(self)
         self.name, self.body = name, body
         self.result = None
+        self.http = 0
 
     def start(self):
         path = self.out_path + ".req"
@@ -1050,14 +1084,22 @@ class ApiCall(Proc):
             json.dump(self.body, f)
         self.req = path
         self._spawn(["curl", "-sS", "--max-time", "20", "-X", "POST", "-H", "Content-Type: application/json",
-                     "--data-binary", "@" + path, "%s/%s" % (LICENSE_API, self.name)], self._done, merge=False)
+                     "-H", "Accept: application/json", "--data-binary", "@" + path, "-w", "\n%{http_code}",
+                     "%s/%s" % (LICENSE_API, self.name)], self._done, merge=False)
 
     def _done(self, code):
-        text = self._read(self.out_path)
+        text = self._read(self.out_path).rstrip()
+        body, _, http = text.rpartition("\n")
         try:
-            self.result = json.loads(text)
+            self.http = int(http)
+        except ValueError:
+            body, self.http = text, 0
+        try:
+            res = json.loads(body)
+            self.result = res if isinstance(res, dict) else None
         except Exception:
             self.result = None
+        if self.result is None:
             self.error = "Couldn't reach the LinkDrop server. Check your internet connection."
         try:
             os.remove(self.req)
@@ -1067,9 +1109,29 @@ class ApiCall(Proc):
         self._cleanup()
 
 
-def license_body(key):
-    return {"key": key, "machine_id": machine_id(), "machine_name": machine_name(),
-            "os": "Windows" if IS_WIN else "macOS", "app_version": VERSION}
+def license_body(key=None):
+    body = {"machine_id": machine_id(), "machine_name": machine_name(), "app_version": VERSION,
+            "os": "Windows" if IS_WIN else "macOS"}
+    if key is not None:
+        body["key"] = key
+    return body
+
+
+def api_message(res, fallback):
+    """The text to show for a refusal: the server's own message when it sends one."""
+    res = res or {}
+    for k in ("message", "error", "detail", "reason"):
+        if isinstance(res.get(k), str) and res[k].strip():
+            return res[k].strip()
+    status = res.get("status")
+    return {
+        "expired": "Your license has expired. Renew it on the LinkDrop site.",
+        "revoked": "This computer was removed from your license. Activate it again or get a new key on the site.",
+        "invalid": "This key isn't valid. Check it and try again.",
+        "not_found": "This key isn't valid. Check it and try again.",
+        "in_use": "This key is already active on another computer. Remove that computer on the site first.",
+        "trial_used": "This computer already used its free trial. Get a license on the LinkDrop site.",
+    }.get(status, fallback)
 
 
 # ---------------------------------------------------------------- update ---
@@ -1511,12 +1573,13 @@ def main():
         sub("S9", "Enter your license key to unlock LinkDrop."),
         ui.VGap(6, 0),
         ui.LineEdit({"ID": "LicKey", "PlaceholderText": "LD-XXXX-XXXX-XXXX", "StyleSheet": CSS["box"], "Weight": 0}),
-        ui.Label({"Text": "No key yet? Start a free 24-hour trial or get a license (%s) on the site." % PRICE_TEXT,
+        ui.Label({"Text": "No key yet? Try it free for 24 hours, or get a license (%s) on the site." % PRICE_TEXT,
                   "WordWrap": True, "StyleSheet": CSS["caption"], "Weight": 0, "MinimumSize": [0, 18]}),
         ui.Label({"ID": "LicMsg", "Text": "", "WordWrap": True, "StyleSheet": CSS["caption"], "Weight": 0,
                   "MinimumSize": [0, 40]}),
         ui.VGap(0, 1),
-        nav(btn("GetKey", "  Get a key", icon="i_next"), ui.HGap(0, 1), btn("Activate", "Activate  \u2192", "primary")),
+        nav(btn("StartTrial", "Start free 24-hour trial"), btn("GetKey", "  Get a key", icon="i_next"),
+            ui.HGap(0, 1), btn("Activate", "Activate  \u2192", "primary")),
     ])
 
     page_analyze = ui.VGroup({"Spacing": 10}, [
@@ -1612,6 +1675,10 @@ def main():
             ui.HGap(0, 1),
             ui.ComboBox({"ID": "Place", "StyleSheet": CSS["combo"], "Weight": 0, "ToolTip": "Where the clip goes"})]),
         ui.Label({"ID": "TargetInfo", "Text": "", "StyleSheet": CSS["caption"], "Weight": 0, "MinimumSize": [0, 22]}),
+        ui.HGroup({"Weight": 0, "Spacing": 8}, [
+            ui.Label({"ID": "LicInfo", "Text": "", "StyleSheet": CSS["caption"], "Weight": 1}),
+            ui.Button({"ID": "Deactivate", "Text": "Deactivate this computer", "Flat": True, "StyleSheet": CSS["link"],
+                       "Weight": 0, "ToolTip": "Frees your key so you can use it on another computer"})]),
         ui.VGap(0, 1),
         nav(ui.HGap(0, 1), btn("SettingsDone", "Done  \u2713", "primary")),
     ])
@@ -1863,7 +1930,8 @@ def main():
 
     # -------------------------------------------------------------- license ---
     def licensed():
-        return st["lic"] is not None and time.time() < st["lic"].get("expires", 0)
+        lic = st["lic"]
+        return bool(lic) and lic.get("status") not in LOCKED_STATUSES and time.time() < (lic.get("expires") or 9e12)
 
     def fmt_left(sec):
         sec = max(0, int(sec))
@@ -1871,10 +1939,10 @@ def main():
 
     def refresh_trial():
         lic = st["lic"]
-        trial = bool(lic) and lic.get("kind") == "trial"
+        trial = bool(lic) and lic.get("mode") == "trial"
         itm["TrialBtn"].Visible = trial
         if trial:
-            left = lic.get("expires", 0) - time.time()
+            left = (lic.get("expires") or 0) - time.time()
             itm["TrialBtn"].Text = "Trial  %s left" % fmt_left(left)
             itm["TrialBtn"].StyleSheet = CSS["trial_low" if left < 3600 else "trial"]
             if not st["clock_on"]:
@@ -1883,45 +1951,82 @@ def main():
         elif st["clock_on"]:
             st["clock_on"] = False
             clock.Stop()
+        refresh_license_row()
+
+    def refresh_license_row():
+        lic = st["lic"] or {}
+        if lic.get("mode") == "paid":
+            until = time.strftime("%d/%m/%Y", time.localtime(lic["expires"])) if lic.get("expires") else ""
+            itm["LicInfo"].Text = "License %s%s" % (mask_key(lic.get("key")), ("  \u00b7  valid until " + until) if until else "")
+            itm["Deactivate"].Enabled = True
+        elif lic.get("mode") == "trial":
+            itm["LicInfo"].Text = "Free trial on this computer"
+            itm["Deactivate"].Enabled = False
+        else:
+            itm["LicInfo"].Text = ""
+            itm["Deactivate"].Enabled = False
 
     def show_license(message="", error=True):
-        saved = load_license()
-        if saved.get("key") and not (itm["LicKey"].Text or "").strip():
-            itm["LicKey"].Text = saved["key"]
+        itm["LicKey"].Text = ""
         itm["LicMsg"].Text = message
         itm["LicMsg"].StyleSheet = CSS["msg_err" if error and message else "caption"]
-        itm["Activate"].Enabled = True
+        for b in ("Activate", "StartTrial"):
+            itm[b].Enabled = True
         go(P_LICENSE)
 
     def lock(message):
         """Back to the activation screen; waits for a running download to finish first."""
+        data = load_license()
+        data["status"] = "revoked" if data else "invalid"
+        save_license(data)
         st["lic"] = None
         refresh_trial()
-        data = load_license()
-        data.pop("token", None)
-        save_license(data)
         if st["current"] is not None or analysis_busy():
             st["lock_msg"] = message
         else:
             show_license(message)
 
-    def license_call(name, key, purpose):
-        call = ApiCall(name, license_body(key))
+    def license_call(name, body, purpose, key=None):
+        call = ApiCall(name, body)
         st["lic_call"], st["lic_purpose"], st["lic_key"] = call, purpose, key
         call.start()
         kick()
 
+    def set_msg(text, kind="caption"):
+        itm["LicMsg"].Text = text
+        itm["LicMsg"].StyleSheet = CSS[kind]
+
     def on_activate(ev=None):
         key = re.sub(r"\s+", "", (itm["LicKey"].Text or "")).upper()
-        if not re.match(r"^LDT?-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$", key):
-            itm["LicMsg"].Text = "That doesn't look like a LinkDrop key (LD-XXXX-XXXX-XXXX)."
-            itm["LicMsg"].StyleSheet = CSS["msg_err"]
+        if not re.match(r"^[A-Z0-9]{2,6}(-[A-Z0-9]{4}){2,4}$", key):
+            set_msg("That doesn't look like a LinkDrop key (LD-XXXX-XXXX-XXXX).", "msg_err")
             return
-        itm["LicKey"].Text = key
-        itm["LicMsg"].Text = "Activating..."
-        itm["LicMsg"].StyleSheet = CSS["caption"]
-        itm["Activate"].Enabled = False
-        license_call("license-activate", key, "activate")
+        set_msg("Activating...")
+        itm["Activate"].Enabled = itm["StartTrial"].Enabled = False
+        license_call("license-activate", license_body(key), "activate", key)
+
+    def on_start_trial(ev=None):
+        set_msg("Starting your free trial...")
+        itm["Activate"].Enabled = itm["StartTrial"].Enabled = False
+        license_call("license-start-trial", license_body(), "trial")
+
+    def on_deactivate(ev=None):
+        lic = st["lic"] or {}
+        if lic.get("mode") != "paid" or st["current"] is not None:
+            return
+        itm["Deactivate"].Enabled = False
+        itm["LicInfo"].Text = "Removing this computer..."
+        license_call("license-deactivate", {"key": lic.get("key"), "machine_id": machine_id()}, "deactivate",
+                     lic.get("key"))
+
+    def accept(data):
+        data["checked"] = time.time()
+        save_license(data)
+        st["lic"] = data
+        refresh_trial()
+        if st["page"] == P_LICENSE:
+            set_msg("")
+            go(P_LINKS)
 
     def tick_license():
         call = st["lic_call"]
@@ -1930,27 +2035,48 @@ def main():
             return
         st["lic_call"] = None
         res, purpose, key = call.result, st["lic_purpose"], st["lic_key"]
-        if res and res.get("ok") and res.get("token"):
-            payload = verify_license_token(res["token"])
-            if payload and payload.get("machine") == machine_id():
-                save_license({"key": key, "token": res["token"]})
-                st["lic"] = payload
-                refresh_trial()
-                if st["page"] == P_LICENSE:
-                    itm["LicMsg"].Text = ""
-                    go(P_LINKS)
-                return
-            res = {"ok": False, "message": "The server's answer couldn't be verified. Try again."}
+        ok = bool(res) and res.get("ok") is True
+        status = (res or {}).get("status")
+        for b in ("Activate", "StartTrial"):
+            itm[b].Enabled = True
+
         if purpose == "activate":
-            itm["Activate"].Enabled = True
-            itm["LicMsg"].Text = (res or {}).get("message") or call.error or "Activation failed. Try again."
-            itm["LicMsg"].StyleSheet = CSS["msg_err"]
-        elif res and res.get("status") in ("revoked", "expired", "disabled", "invalid"):
-            lock(res.get("message") or "This computer is no longer licensed.")
-        elif purpose == "resume" and st["page"] == P_LICENSE:
-            itm["LicMsg"].Text = (res or {}).get("message") or call.error or ""
-            itm["LicMsg"].StyleSheet = CSS["msg_err"]
-        # offline during a background check: keep working on the saved token
+            if ok and status in (None, "active", "trial"):
+                accept({"mode": "paid", "key": key, "status": status or "active",
+                        "expires": parse_time(res.get("expires_at")), "plan": res.get("plan")})
+            else:
+                set_msg(api_message(res, call.error or "Activation failed. Try again."), "msg_err")
+        elif purpose == "trial":
+            ends = parse_time((res or {}).get("trial_expires_at") or (res or {}).get("expires_at"))
+            if ok and ends > time.time():
+                accept({"mode": "trial", "status": "trial", "expires": ends})
+            else:
+                set_msg(api_message(res, call.error or "Couldn't start the trial. Try again."), "msg_err")
+        elif purpose == "deactivate":
+            if ok:
+                clear_license()
+                st["lic"] = None
+                refresh_trial()
+                show_license("This computer was removed from your license. You can use the key on another computer.",
+                             error=False)
+            else:
+                refresh_license_row()
+                itm["LicInfo"].Text = api_message(res, call.error or "Couldn't remove this computer. Try again.")
+        else:  # background / resume: confirm the saved license
+            data = load_license()
+            if ok and status in ("active", "trial"):
+                data["status"] = status
+                if res.get("expires_at"):
+                    data["expires"] = parse_time(res["expires_at"])
+                accept(data)
+            elif res is not None and (status in LOCKED_STATUSES or res.get("ok") is False):
+                if data.get("mode") == "trial" and status not in LOCKED_STATUSES:
+                    return  # the trial check isn't conclusive: keep the local 24 h
+                lock(api_message(res, "This computer is no longer licensed."))
+            elif purpose == "resume" and st["page"] == P_LICENSE:
+                set_msg(call.error or "Couldn't check your license. Connect to the internet and try again.",
+                        "msg_err")
+            # offline during a background check: keep working (offline grace)
 
     # -------------------------------------------------------- 2. analyze ---
     def start_analysis(ev=None):
@@ -2648,8 +2774,10 @@ def main():
         if st["clock_on"] and int(now) != st.get("clock_s"):
             st["clock_s"] = int(now)
             refresh_trial()
-            if st["lic"] and now >= st["lic"].get("expires", 0):
-                lock("Your free trial ended. Get a license on the LinkDrop site to keep using it.")
+            lic = st["lic"]
+            if lic and lic.get("expires") and now >= lic["expires"]:
+                lock("Your free trial ended. Get a license on the LinkDrop site to keep using it."
+                     if lic.get("mode") == "trial" else "Your license has expired. Renew it on the site.")
         apply_motion(dt)
         busy = analysis_busy() or st["current"] is not None or st["lic_call"] is not None
         if not busy and not motion_busy():
@@ -2722,6 +2850,8 @@ def main():
     on.TrialBtn.Clicked = lambda ev: open_url(LICENSE_SITE)
     on.GetKey.Clicked = lambda ev: open_url(LICENSE_SITE)
     on.Activate.Clicked = on_activate
+    on.StartTrial.Clicked = on_start_trial
+    on.Deactivate.Clicked = on_deactivate
     on.LicKey.ReturnPressed = on_activate
     disp.On.Timeout = on_tick
 
@@ -2737,19 +2867,24 @@ def main():
     urls = read_clipboard()
     set_links_text("\n".join(urls) if urls else "")
 
-    lic_state, lic_payload = license_state()
-    saved_key = load_license().get("key")
+    lic_state, lic_data = license_state()
     start_page = LINK_PAGE[st["box"]]
     if lic_state == "ok":
-        st["lic"] = lic_payload
-        license_call("license-validate", saved_key, "background")
+        st["lic"] = lic_data
+        license_call("license-validate", license_body(lic_data.get("key", "")), "background", lic_data.get("key"))
     else:
         st["page"] = P_LICENSE
         start_page = P_LICENSE
-        itm["LicKey"].Text = saved_key or ""
-        if saved_key and lic_state in ("stale", "expired", "invalid"):
+        if lic_state == "stale":
             itm["LicMsg"].Text = "Checking your license..."
-            license_call("license-validate", saved_key, "resume")
+            license_call("license-validate", license_body(lic_data.get("key", "")), "resume", lic_data.get("key"))
+        elif lic_state == "expired":
+            itm["LicMsg"].Text = ("Your free trial ended. Get a license to keep using LinkDrop."
+                                  if lic_data.get("mode") == "trial" else "Your license has expired. Renew it on the site.")
+            itm["LicMsg"].StyleSheet = CSS["msg_err"]
+        elif lic_state == "locked":
+            itm["LicMsg"].Text = "This computer is no longer licensed. Enter a key to continue."
+            itm["LicMsg"].StyleSheet = CSS["msg_err"]
     for i in range(4):
         springs["dot%d" % i].snap(1.0 if (i == 0 and start_page != P_LICENSE) else 0.0)
         itm["Dot%d" % i].StyleSheet = dot_css(springs["dot%d" % i].value)
