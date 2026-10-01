@@ -12,7 +12,7 @@ LinkDrop is a DaVinci Resolve script that downloads a video (or just the audio) 
 - **Smart placement.** At the playhead it uses a free track, so nothing on your timeline gets overwritten.
 - **Resolve-friendly codecs.** Picks H.264/AAC and converts anything Resolve can't decode.
 - **Organized.** Every download goes into a `Downloads` bin in the Media Pool.
-- **Auto-updates from GitHub.** When a new version comes out, an "Update" button appears in the window.
+- **Auto-updates from GitHub.** Every time you open LinkDrop it checks this repo and, if there is a newer version, installs it and opens it right away.
 
 ## Supported sites
 
@@ -40,7 +40,7 @@ The installer sets up `yt-dlp`, `ffmpeg` and `deno` with Homebrew, then copies `
 
 ## Releasing an update
 
-Bump `VERSION` in `LinkDrop.py` and push to `main`. Every LinkDrop that opens after that will offer the update.
+Bump `VERSION` in `LinkDrop.py` and push to `main`. Every LinkDrop updates itself the next time it opens (offline it just opens the installed version).
 
 ---
 

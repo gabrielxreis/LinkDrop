@@ -21,7 +21,7 @@ import threading
 import subprocess
 
 APP_TITLE = "LinkDrop"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 REPO = "gabrielxreis/LinkDrop"
 RAW_URL = "https://raw.githubusercontent.com/%s/main/LinkDrop.py" % REPO
 SCRIPT_PATH = os.path.expanduser("~/Library/Application Support/Blackmagic Design/DaVinci Resolve/"
@@ -133,8 +133,8 @@ def version_tuple(v):
 def fetch_latest():
     """Fetch LinkDrop.py from GitHub. Returns (version, code) or (None, None)."""
     try:
-        r = subprocess.run(["curl", "-fsSL", "--max-time", "8", RAW_URL + "?t=%d" % int(time.time())],
-                           capture_output=True, text=True, timeout=12)
+        r = subprocess.run(["curl", "-fsSL", "--max-time", "5", RAW_URL + "?t=%d" % int(time.time())],
+                           capture_output=True, text=True, timeout=8)
         code = r.stdout if r.returncode == 0 else ""
         m = re.search(r'^VERSION = "([^"]+)"', code, re.M)
         if not m:
@@ -377,432 +377,437 @@ def place_in_resolve(path, target):
     return "Placed at the playhead (%s) on a free track." % rec_tc
 
 
+# ---------------------------------------------------------------- update ---
+
+def auto_update():
+    """On launch: if GitHub has a newer LinkDrop, install it and run that one instead."""
+    if globals().get("_LINKDROP_UPDATED_FROM"):
+        return False  # we are the freshly updated copy
+    v, code = fetch_latest()
+    if not v or version_tuple(v) <= version_tuple(VERSION):
+        return False
+    path = SCRIPT_PATH
+    try:
+        install_update(code)
+        path = globals().get("__file__") or SCRIPT_PATH
+        print("[LinkDrop] Updated v%s -> v%s" % (VERSION, v))
+    except Exception as e:
+        print("[LinkDrop] Could not save v%s (%s); running it this time anyway." % (v, e))
+    g = dict(globals())
+    g.update({"__name__": "__main__", "__file__": path, "_LINKDROP_UPDATED_FROM": VERSION})
+    exec(compile(code, path, "exec"), g)
+    return True
+
+
 # -------------------------------------------------------------------- UI ---
 
-ACCENT = "#FF4D6D"
-ACCENT2 = "#FF8A3D"
-PLATFORMS = [("music.youtube", "YouTube Music"), ("youtu", "YouTube"), ("instagram", "Instagram"), ("tiktok", "TikTok"),
-             ("twitter.com", "X / Twitter"), ("x.com", "X / Twitter"), ("vimeo", "Vimeo"),
-             ("facebook", "Facebook"), ("fb.watch", "Facebook"), ("drive.google", "Google Drive"),
-             ("soundcloud", "SoundCloud"), ("twitch", "Twitch"), ("dropbox", "Dropbox")]
-MUSIC_SITES = ("YouTube Music", "SoundCloud")
-DRM_SITES = [("spotify.com", "Spotify"), ("music.apple.com", "Apple Music"), ("deezer.com", "Deezer"),
-             ("tidal.com", "Tidal"), ("netflix.com", "Netflix"), ("primevideo.com", "Prime Video"),
-             ("disneyplus.com", "Disney+")]
-STEPS = ["Link", "Options", "Done"]
-MODE_CARDS = [("Video + audio", "H.264 MP4, plays smooth"),
-              ("Audio only", "Lossless WAV for Fairlight")]
-QUALITY_SHORT = ["Best", "4K", "1080p", "720p"]
-TARGET_CARDS = ["Playhead", "End of timeline", "New timeline", "Media Pool"]
-TARGET_HINTS = ["Drops at the playhead on a free track. Nothing gets overwritten.",
-                "Goes right after the last clip of the current timeline.",
-                "Creates a new timeline with just this file.",
-                "Only imports it into the Media Pool, in the Downloads bin."]
+def main():
+    ACCENT = "#FF4D6D"
+    ACCENT2 = "#FF8A3D"
+    PLATFORMS = [("music.youtube", "YouTube Music"), ("youtu", "YouTube"), ("instagram", "Instagram"), ("tiktok", "TikTok"),
+                 ("twitter.com", "X / Twitter"), ("x.com", "X / Twitter"), ("vimeo", "Vimeo"),
+                 ("facebook", "Facebook"), ("fb.watch", "Facebook"), ("drive.google", "Google Drive"),
+                 ("soundcloud", "SoundCloud"), ("twitch", "Twitch"), ("dropbox", "Dropbox")]
+    MUSIC_SITES = ("YouTube Music", "SoundCloud")
+    DRM_SITES = [("spotify.com", "Spotify"), ("music.apple.com", "Apple Music"), ("deezer.com", "Deezer"),
+                 ("tidal.com", "Tidal"), ("netflix.com", "Netflix"), ("primevideo.com", "Prime Video"),
+                 ("disneyplus.com", "Disney+")]
+    STEPS = ["Link", "Options", "Done"]
+    MODE_CARDS = [("Video + audio", "H.264 MP4, plays smooth"),
+                  ("Audio only", "Lossless WAV for Fairlight")]
+    QUALITY_SHORT = ["Best", "4K", "1080p", "720p"]
+    TARGET_CARDS = ["Playhead", "End of timeline", "New timeline", "Media Pool"]
+    TARGET_HINTS = ["Drops at the playhead on a free track. Nothing gets overwritten.",
+                    "Goes right after the last clip of the current timeline.",
+                    "Creates a new timeline with just this file.",
+                    "Only imports it into the Media Pool, in the Downloads bin."]
 
-GRAD = "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 %s, stop:1 %s)" % (ACCENT, ACCENT2)
-CSS = {
-    "title": "font-size: 22px; font-weight: 700; color: #FFFFFF;",
-    "sub": "font-size: 13px; color: #9A9AA5;",
-    "brand": "font-size: 15px; font-weight: 800; color: #FFFFFF; letter-spacing: 1px;",
-    "step_on": "font-size: 12px; font-weight: 700; color: #FFFFFF; background: %s;"
-               "border-radius: 11px; padding: 3px 10px;" % GRAD,
-    "step_done": "font-size: 12px; color: #FF8FA3; background: #3A2530; border-radius: 11px; padding: 3px 10px;",
-    "step_off": "font-size: 12px; color: #6E6E78; background: #26262C; border-radius: 11px; padding: 3px 10px;",
-    "url": "QLineEdit { font-size: 16px; padding: 12px 14px; border-radius: 10px; background: #1B1B20;"
-           "border: 1px solid #3A3A44; color: #FFFFFF; }"
-           "QLineEdit:focus { border: 1px solid %s; }" % ACCENT,
-    "ghost": "QPushButton { font-size: 13px; padding: 9px 16px; border-radius: 9px; background: #2A2A31;"
-             "color: #E6E6EA; border: 1px solid #3A3A44; }"
-             "QPushButton:hover { background: #33333B; }"
-             "QPushButton:disabled { color: #55555E; }",
-    "primary": "QPushButton { font-size: 14px; font-weight: 700; padding: 10px 22px; border-radius: 10px;"
-               "background: %s; color: #FFFFFF; border: none; }"
-               "QPushButton:hover { background: %s; }"
-               "QPushButton:disabled { background: #3A3A44; color: #77777F; }" % (GRAD, ACCENT),
-    "card": "QPushButton { text-align: left; font-size: 14px; padding: 12px 16px; border-radius: 12px;"
-            "background: #222228; color: #D8D8DE; border: 1px solid #34343D; }"
-            "QPushButton:hover { border: 1px solid #5A5A66; }"
-            "QPushButton:checked { background: #34202A; color: #FFFFFF; border: 2px solid %s; }" % ACCENT,
-    "seg": "QPushButton { font-size: 13px; padding: 8px 0px; border-radius: 8px; background: #222228;"
-           "color: #B8B8C0; border: 1px solid #34343D; }"
-           "QPushButton:checked { background: %s; color: #FFFFFF; border: none; font-weight: 700; }" % GRAD,
-    "detect_ok": "font-size: 13px; color: #5BD69B; font-weight: 600;",
-    "detect_bad": "font-size: 13px; color: #FF7A7A;",
-    "label": "font-size: 12px; color: #8A8A94; font-weight: 600; letter-spacing: 1px;",
-    "path": "font-size: 12px; color: #B8B8C0; background: #1B1B20; border-radius: 8px; padding: 8px 10px;",
-    "big_icon": "font-size: 54px;",
-    "pct": "font-size: 34px; font-weight: 800; color: #FFFFFF;",
-    "bar": "QSlider::groove:horizontal { height: 10px; border-radius: 5px; background: #26262C; }"
-           "QSlider::sub-page:horizontal { border-radius: 5px; background: %s; }"
-           "QSlider::add-page:horizontal { border-radius: 5px; background: #26262C; }"
-           "QSlider::handle:horizontal { width: 0px; margin: 0px; background: transparent; }" % GRAD,
-    "detail": "font-size: 13px; color: #A8A8B2;",
-    "hint": "font-size: 12px; color: #8A8A94;",
-    "folder": "QPushButton { font-size: 12px; color: #8A8A94; background: transparent; border: none;"
-              "padding: 0px; } QPushButton:hover { color: #FFFFFF; }",
-    "foot": "font-size: 12px; color: #6E6E78;",
-    "insta": "QPushButton { font-size: 12px; font-weight: 700; color: %s; background: transparent;"
-             "border: none; padding: 0px; } QPushButton:hover { color: %s; text-decoration: underline; }"
-             % (ACCENT, ACCENT2),
-    "update": "QPushButton { font-size: 12px; font-weight: 700; color: #0F1F17; background: #5BD69B;"
-              "border-radius: 8px; padding: 5px 12px; border: none; }",
-}
-
-
-def nav(*buttons):
-    return ui.HGroup({"Weight": 0, "Spacing": 10}, [ui.HGap(0, 1)] + list(buttons))
+    GRAD = "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 %s, stop:1 %s)" % (ACCENT, ACCENT2)
+    CSS = {
+        "title": "font-size: 22px; font-weight: 700; color: #FFFFFF;",
+        "sub": "font-size: 13px; color: #9A9AA5;",
+        "brand": "font-size: 15px; font-weight: 800; color: #FFFFFF; letter-spacing: 1px;",
+        "step_on": "font-size: 12px; font-weight: 700; color: #FFFFFF; background: %s;"
+                   "border-radius: 11px; padding: 3px 10px;" % GRAD,
+        "step_done": "font-size: 12px; color: #FF8FA3; background: #3A2530; border-radius: 11px; padding: 3px 10px;",
+        "step_off": "font-size: 12px; color: #6E6E78; background: #26262C; border-radius: 11px; padding: 3px 10px;",
+        "url": "QLineEdit { font-size: 16px; padding: 12px 14px; border-radius: 10px; background: #1B1B20;"
+               "border: 1px solid #3A3A44; color: #FFFFFF; }"
+               "QLineEdit:focus { border: 1px solid %s; }" % ACCENT,
+        "ghost": "QPushButton { font-size: 13px; padding: 9px 16px; border-radius: 9px; background: #2A2A31;"
+                 "color: #E6E6EA; border: 1px solid #3A3A44; }"
+                 "QPushButton:hover { background: #33333B; }"
+                 "QPushButton:disabled { color: #55555E; }",
+        "primary": "QPushButton { font-size: 14px; font-weight: 700; padding: 10px 22px; border-radius: 10px;"
+                   "background: %s; color: #FFFFFF; border: none; }"
+                   "QPushButton:hover { background: %s; }"
+                   "QPushButton:disabled { background: #3A3A44; color: #77777F; }" % (GRAD, ACCENT),
+        "card": "QPushButton { text-align: left; font-size: 14px; padding: 12px 16px; border-radius: 12px;"
+                "background: #222228; color: #D8D8DE; border: 1px solid #34343D; }"
+                "QPushButton:hover { border: 1px solid #5A5A66; }"
+                "QPushButton:checked { background: #34202A; color: #FFFFFF; border: 2px solid %s; }" % ACCENT,
+        "seg": "QPushButton { font-size: 13px; padding: 8px 0px; border-radius: 8px; background: #222228;"
+               "color: #B8B8C0; border: 1px solid #34343D; }"
+               "QPushButton:checked { background: %s; color: #FFFFFF; border: none; font-weight: 700; }" % GRAD,
+        "detect_ok": "font-size: 13px; color: #5BD69B; font-weight: 600;",
+        "detect_bad": "font-size: 13px; color: #FF7A7A;",
+        "label": "font-size: 12px; color: #8A8A94; font-weight: 600; letter-spacing: 1px;",
+        "path": "font-size: 12px; color: #B8B8C0; background: #1B1B20; border-radius: 8px; padding: 8px 10px;",
+        "big_icon": "font-size: 54px;",
+        "pct": "font-size: 34px; font-weight: 800; color: #FFFFFF;",
+        "bar": "QSlider::groove:horizontal { height: 10px; border-radius: 5px; background: #26262C; }"
+               "QSlider::sub-page:horizontal { border-radius: 5px; background: %s; }"
+               "QSlider::add-page:horizontal { border-radius: 5px; background: #26262C; }"
+               "QSlider::handle:horizontal { width: 0px; margin: 0px; background: transparent; }" % GRAD,
+        "detail": "font-size: 13px; color: #A8A8B2;",
+        "hint": "font-size: 12px; color: #8A8A94;",
+        "folder": "QPushButton { font-size: 12px; color: #8A8A94; background: transparent; border: none;"
+                  "padding: 0px; } QPushButton:hover { color: #FFFFFF; }",
+        "foot": "font-size: 12px; color: #6E6E78;",
+        "insta": "QPushButton { font-size: 12px; font-weight: 700; color: %s; background: transparent;"
+                 "border: none; padding: 0px; } QPushButton:hover { color: %s; text-decoration: underline; }"
+                 % (ACCENT, ACCENT2),
+        "update": "font-size: 12px; font-weight: 700; color: #0F1F17; background: #5BD69B;"
+                  "border-radius: 8px; padding: 4px 10px;",
+    }
 
 
-def card(id_, title, desc, group):
-    return ui.Button({"ID": id_, "Text": "%s\n%s" % (title, desc), "Checkable": True,
-                      "StyleSheet": CSS[group], "Weight": 1})
+    def nav(*buttons):
+        return ui.HGroup({"Weight": 0, "Spacing": 10}, [ui.HGap(0, 1)] + list(buttons))
 
 
-settings = load_settings()
-
-header = ui.HGroup({"Weight": 0, "Spacing": 8}, [
-    ui.Label({"Text": "⬇  LINKDROP", "StyleSheet": CSS["brand"], "Weight": 0}),
-    ui.HGap(0, 1),
-] + [ui.Label({"ID": "Step%d" % i, "Text": "%d  %s" % (i + 1, n), "Weight": 0}) for i, n in enumerate(STEPS)])
-
-page_link = ui.VGroup({"Spacing": 10}, [
-    ui.Label({"Text": "Paste a video link", "StyleSheet": CSS["title"], "Weight": 0}),
-    ui.Label({"Text": "YouTube, Instagram, TikTok, X, Vimeo, Facebook and 1,000+ other sites.",
-              "StyleSheet": CSS["sub"], "Weight": 0}),
-    ui.VGap(6, 0),
-    ui.LineEdit({"ID": "Url", "PlaceholderText": "https://", "StyleSheet": CSS["url"], "Weight": 0}),
-    ui.HGroup({"Weight": 0, "Spacing": 12}, [
-        ui.Button({"ID": "Paste", "Text": "📋  Paste copied link", "StyleSheet": CSS["ghost"], "Weight": 0}),
-        ui.Label({"ID": "Detect", "Text": "", "WordWrap": True, "Weight": 1}),
-    ]),
-    ui.VGap(0, 1),
-    nav(ui.Button({"ID": "Next1", "Text": "Next  →", "StyleSheet": CSS["primary"]})),
-])
-
-page_options = ui.VGroup({"Spacing": 8}, [
-    ui.Label({"Text": "What do you want?", "StyleSheet": CSS["title"], "Weight": 0}),
-    ui.Label({"ID": "LinkEcho", "Text": "", "StyleSheet": CSS["sub"], "Weight": 0}),
-    ui.VGap(4, 0),
-    ui.HGroup({"Weight": 0, "Spacing": 10}, [card("Mode%d" % i, t, d, "card") for i, (t, d) in enumerate(MODE_CARDS)]),
-    ui.VGap(4, 0),
-    ui.Label({"ID": "QualityLabel", "Text": "MAX QUALITY", "StyleSheet": CSS["label"], "Weight": 0}),
-    ui.HGroup({"Weight": 0, "Spacing": 6},
-              [ui.Button({"ID": "Q%d" % i, "Text": q, "Checkable": True, "StyleSheet": CSS["seg"], "Weight": 1})
-               for i, q in enumerate(QUALITY_SHORT)]),
-    ui.VGap(4, 0),
-    ui.Label({"Text": "PLACE IT AT", "StyleSheet": CSS["label"], "Weight": 0}),
-    ui.HGroup({"Weight": 0, "Spacing": 6},
-              [ui.Button({"ID": "T%d" % i, "Text": t, "Checkable": True, "StyleSheet": CSS["seg"], "Weight": 1})
-               for i, t in enumerate(TARGET_CARDS)]),
-    ui.Label({"ID": "TargetHint", "Text": "", "StyleSheet": CSS["hint"], "Weight": 0}),
-    ui.VGap(0, 1),
-    nav(ui.Button({"ID": "Back2", "Text": "←  Back", "StyleSheet": CSS["ghost"]}),
-        ui.Button({"ID": "Go", "Text": "⬇  Download && place", "StyleSheet": CSS["primary"]})),
-])
-
-page_progress = ui.VGroup({"Spacing": 8}, [
-    ui.VGap(0, 1),
-    ui.Label({"ID": "BigIcon", "Text": "⬇", "Alignment": {"AlignHCenter": True}, "StyleSheet": CSS["big_icon"], "Weight": 0}),
-    ui.Label({"ID": "ProgTitle", "Text": "Downloading...", "Alignment": {"AlignHCenter": True},
-              "StyleSheet": CSS["title"], "Weight": 0}),
-    ui.Label({"ID": "Pct", "Text": "0%", "Alignment": {"AlignHCenter": True}, "StyleSheet": CSS["pct"], "Weight": 0}),
-    ui.Slider({"ID": "Bar", "Minimum": 0, "Maximum": 1000, "Value": 0, "Enabled": False,
-               "StyleSheet": CSS["bar"], "Weight": 0}),
-    ui.Label({"ID": "Detail", "Text": "", "Alignment": {"AlignHCenter": True}, "WordWrap": True,
-              "StyleSheet": CSS["detail"], "MinimumSize": [0, 54], "Weight": 0}),
-    ui.VGap(0, 1),
-    nav(ui.Button({"ID": "Cancel", "Text": "Cancel", "StyleSheet": CSS["ghost"]}),
-        ui.Button({"ID": "Reveal", "Text": "Show in Finder", "StyleSheet": CSS["ghost"], "Visible": False}),
-        ui.Button({"ID": "Again", "Text": "↻  Download another", "StyleSheet": CSS["primary"], "Visible": False})),
-])
-
-footer = ui.HGroup({"Weight": 0, "Spacing": 6}, [
-    ui.Label({"Text": "LinkDrop v%s  ·  made by" % VERSION, "StyleSheet": CSS["foot"], "Weight": 0}),
-    ui.Button({"ID": "Insta", "Text": "@gabrielxreis_", "Flat": True, "StyleSheet": CSS["insta"],
-               "ToolTip": INSTAGRAM_URL, "Weight": 0}),
-    ui.HGap(0, 1),
-    ui.Button({"ID": "Browse", "Text": "", "Flat": True, "StyleSheet": CSS["folder"], "Weight": 0,
-               "ToolTip": "Where downloads are saved. Click to change."}),
-    ui.Button({"ID": "Update", "Text": "", "Visible": False, "StyleSheet": CSS["update"], "Weight": 0}),
-])
-
-win = disp.AddWindow({
-    "ID": "LinkDropWin",
-    "WindowTitle": "LinkDrop",
-    "Geometry": [300, 160, 680, 520],
-    "StyleSheet": "QWidget#LinkDropWin { background: #17171B; }",
-}, ui.VGroup({"Spacing": 14}, [
-    header,
-    ui.Stack({"ID": "Pages", "Weight": 1}, [page_link, page_options, page_progress]),
-    footer,
-]))
-
-itm = win.GetItems()
-state = {"job": None, "mode": int(settings.get("mode", 0)), "quality": int(settings.get("quality", 2)),
-         "target": int(settings.get("target", 0)), "file": None,
-         "folder": settings.get("folder") or DEFAULT_FOLDER,
-         "update": None, "update_checked": False}
-timer = ui.Timer({"ID": "Poll", "Interval": 200})
+    def card(id_, title, desc, group):
+        return ui.Button({"ID": id_, "Text": "%s\n%s" % (title, desc), "Checkable": True,
+                          "StyleSheet": CSS[group], "Weight": 1})
 
 
-def platform_of(url):
-    low = url.lower()
-    for key, name in PLATFORMS:
-        if key in low:
-            return name
-    return "Link"
+    settings = load_settings()
+
+    header = ui.HGroup({"Weight": 0, "Spacing": 8}, [
+        ui.Label({"Text": "⬇  LINKDROP", "StyleSheet": CSS["brand"], "Weight": 0}),
+        ui.HGap(0, 1),
+    ] + [ui.Label({"ID": "Step%d" % i, "Text": "%d  %s" % (i + 1, n), "Weight": 0}) for i, n in enumerate(STEPS)])
+
+    page_link = ui.VGroup({"Spacing": 10}, [
+        ui.Label({"Text": "Paste a video link", "StyleSheet": CSS["title"], "Weight": 0}),
+        ui.Label({"Text": "YouTube, Instagram, TikTok, X, Vimeo, Facebook and 1,000+ other sites.",
+                  "StyleSheet": CSS["sub"], "Weight": 0}),
+        ui.VGap(6, 0),
+        ui.LineEdit({"ID": "Url", "PlaceholderText": "https://", "StyleSheet": CSS["url"], "Weight": 0}),
+        ui.HGroup({"Weight": 0, "Spacing": 12}, [
+            ui.Button({"ID": "Paste", "Text": "📋  Paste copied link", "StyleSheet": CSS["ghost"], "Weight": 0}),
+            ui.Label({"ID": "Detect", "Text": "", "WordWrap": True, "Weight": 1}),
+        ]),
+        ui.VGap(0, 1),
+        nav(ui.Button({"ID": "Next1", "Text": "Next  →", "StyleSheet": CSS["primary"]})),
+    ])
+
+    page_options = ui.VGroup({"Spacing": 8}, [
+        ui.Label({"Text": "What do you want?", "StyleSheet": CSS["title"], "Weight": 0}),
+        ui.Label({"ID": "LinkEcho", "Text": "", "StyleSheet": CSS["sub"], "Weight": 0}),
+        ui.VGap(4, 0),
+        ui.HGroup({"Weight": 0, "Spacing": 10}, [card("Mode%d" % i, t, d, "card") for i, (t, d) in enumerate(MODE_CARDS)]),
+        ui.VGap(4, 0),
+        ui.Label({"ID": "QualityLabel", "Text": "MAX QUALITY", "StyleSheet": CSS["label"], "Weight": 0}),
+        ui.HGroup({"Weight": 0, "Spacing": 6},
+                  [ui.Button({"ID": "Q%d" % i, "Text": q, "Checkable": True, "StyleSheet": CSS["seg"], "Weight": 1})
+                   for i, q in enumerate(QUALITY_SHORT)]),
+        ui.VGap(4, 0),
+        ui.Label({"Text": "PLACE IT AT", "StyleSheet": CSS["label"], "Weight": 0}),
+        ui.HGroup({"Weight": 0, "Spacing": 6},
+                  [ui.Button({"ID": "T%d" % i, "Text": t, "Checkable": True, "StyleSheet": CSS["seg"], "Weight": 1})
+                   for i, t in enumerate(TARGET_CARDS)]),
+        ui.Label({"ID": "TargetHint", "Text": "", "StyleSheet": CSS["hint"], "Weight": 0}),
+        ui.VGap(0, 1),
+        nav(ui.Button({"ID": "Back2", "Text": "←  Back", "StyleSheet": CSS["ghost"]}),
+            ui.Button({"ID": "Go", "Text": "⬇  Download && place", "StyleSheet": CSS["primary"]})),
+    ])
+
+    page_progress = ui.VGroup({"Spacing": 8}, [
+        ui.VGap(0, 1),
+        ui.Label({"ID": "BigIcon", "Text": "⬇", "Alignment": {"AlignHCenter": True}, "StyleSheet": CSS["big_icon"], "Weight": 0}),
+        ui.Label({"ID": "ProgTitle", "Text": "Downloading...", "Alignment": {"AlignHCenter": True},
+                  "StyleSheet": CSS["title"], "Weight": 0}),
+        ui.Label({"ID": "Pct", "Text": "0%", "Alignment": {"AlignHCenter": True}, "StyleSheet": CSS["pct"], "Weight": 0}),
+        ui.Slider({"ID": "Bar", "Minimum": 0, "Maximum": 1000, "Value": 0, "Enabled": False,
+                   "StyleSheet": CSS["bar"], "Weight": 0}),
+        ui.Label({"ID": "Detail", "Text": "", "Alignment": {"AlignHCenter": True}, "WordWrap": True,
+                  "StyleSheet": CSS["detail"], "MinimumSize": [0, 54], "Weight": 0}),
+        ui.VGap(0, 1),
+        nav(ui.Button({"ID": "Cancel", "Text": "Cancel", "StyleSheet": CSS["ghost"]}),
+            ui.Button({"ID": "Reveal", "Text": "Show in Finder", "StyleSheet": CSS["ghost"], "Visible": False}),
+            ui.Button({"ID": "Again", "Text": "↻  Download another", "StyleSheet": CSS["primary"], "Visible": False})),
+    ])
+
+    footer = ui.HGroup({"Weight": 0, "Spacing": 6}, [
+        ui.Label({"Text": "LinkDrop v%s  ·  made by" % VERSION, "StyleSheet": CSS["foot"], "Weight": 0}),
+        ui.Button({"ID": "Insta", "Text": "@gabrielxreis_", "Flat": True, "StyleSheet": CSS["insta"],
+                   "ToolTip": INSTAGRAM_URL, "Weight": 0}),
+        ui.HGap(0, 1),
+        ui.Button({"ID": "Browse", "Text": "", "Flat": True, "StyleSheet": CSS["folder"], "Weight": 0,
+                   "ToolTip": "Where downloads are saved. Click to change."}),
+        ui.Label({"ID": "Update", "Text": "", "Visible": False, "StyleSheet": CSS["update"], "Weight": 0}),
+    ])
+
+    win = disp.AddWindow({
+        "ID": "LinkDropWin",
+        "WindowTitle": "LinkDrop",
+        "Geometry": [300, 160, 680, 520],
+        "StyleSheet": "QWidget#LinkDropWin { background: #17171B; }",
+    }, ui.VGroup({"Spacing": 14}, [
+        header,
+        ui.Stack({"ID": "Pages", "Weight": 1}, [page_link, page_options, page_progress]),
+        footer,
+    ]))
+
+    itm = win.GetItems()
+    state = {"job": None, "mode": int(settings.get("mode", 0)), "quality": int(settings.get("quality", 2)),
+             "target": int(settings.get("target", 0)), "file": None,
+             "folder": settings.get("folder") or DEFAULT_FOLDER,
+             }
+    timer = ui.Timer({"ID": "Poll", "Interval": 200})
 
 
-def drm_site(url):
-    low = url.lower()
-    for key, name in DRM_SITES:
-        if key in low:
-            return name
-    return None
+    def platform_of(url):
+        low = url.lower()
+        for key, name in PLATFORMS:
+            if key in low:
+                return name
+        return "Link"
 
 
-def go_page(n):
-    itm["Pages"].CurrentIndex = n
-    for i in range(len(STEPS)):
-        key = "step_on" if i == n else ("step_done" if i < n else "step_off")
-        itm["Step%d" % i].StyleSheet = CSS[key]
+    def drm_site(url):
+        low = url.lower()
+        for key, name in DRM_SITES:
+            if key in low:
+                return name
+        return None
 
 
-def current_url():
-    m = URL_RE.search(itm["Url"].Text or "")
-    return m.group(0) if m else ""
+    def go_page(n):
+        itm["Pages"].CurrentIndex = n
+        for i in range(len(STEPS)):
+            key = "step_on" if i == n else ("step_done" if i < n else "step_off")
+            itm["Step%d" % i].StyleSheet = CSS[key]
 
 
-def refresh_detect(ev=None):
-    url = current_url()
-    drm = drm_site(url) if url else None
-    if drm:
-        itm["Detect"].Text = "%s is DRM-protected and can't be downloaded. Try YouTube Music or SoundCloud." % drm
-        itm["Detect"].StyleSheet = CSS["detect_bad"]
-        itm["Next1"].Enabled = False
-        return
-    if url:
-        itm["Detect"].Text = "✓  %s link detected" % platform_of(url)
-        itm["Detect"].StyleSheet = CSS["detect_ok"]
-    elif itm["Url"].Text:
-        itm["Detect"].Text = "That does not look like a link (it should start with http)"
-        itm["Detect"].StyleSheet = CSS["detect_bad"]
-    else:
-        itm["Detect"].Text = ""
-    itm["Next1"].Enabled = bool(url)
+    def current_url():
+        m = URL_RE.search(itm["Url"].Text or "")
+        return m.group(0) if m else ""
 
 
-def select(prefix, count, idx):
-    for i in range(count):
-        itm["%s%d" % (prefix, i)].Checked = (i == idx)
+    def refresh_detect(ev=None):
+        url = current_url()
+        drm = drm_site(url) if url else None
+        if drm:
+            itm["Detect"].Text = "%s is DRM-protected and can't be downloaded. Try YouTube Music or SoundCloud." % drm
+            itm["Detect"].StyleSheet = CSS["detect_bad"]
+            itm["Next1"].Enabled = False
+            return
+        if url:
+            itm["Detect"].Text = "✓  %s link detected" % platform_of(url)
+            itm["Detect"].StyleSheet = CSS["detect_ok"]
+        elif itm["Url"].Text:
+            itm["Detect"].Text = "That does not look like a link (it should start with http)"
+            itm["Detect"].StyleSheet = CSS["detect_bad"]
+        else:
+            itm["Detect"].Text = ""
+        itm["Next1"].Enabled = bool(url)
 
 
-def refresh_choices():
-    select("Mode", len(MODE_CARDS), state["mode"])
-    select("Q", len(QUALITY_SHORT), state["quality"])
-    select("T", len(TARGET_CARDS), state["target"])
-    itm["TargetHint"].Text = TARGET_HINTS[state["target"]]
-    audio = state["mode"] == 1
-    itm["QualityLabel"].Visible = not audio
-    for i in range(len(QUALITY_SHORT)):
-        itm["Q%d" % i].Visible = not audio
+    def select(prefix, count, idx):
+        for i in range(count):
+            itm["%s%d" % (prefix, i)].Checked = (i == idx)
 
 
-def save_all():
-    save_settings({"folder": state["folder"], "mode": state["mode"],
-                   "quality": state["quality"], "target": state["target"]})
+    def refresh_choices():
+        select("Mode", len(MODE_CARDS), state["mode"])
+        select("Q", len(QUALITY_SHORT), state["quality"])
+        select("T", len(TARGET_CARDS), state["target"])
+        itm["TargetHint"].Text = TARGET_HINTS[state["target"]]
+        audio = state["mode"] == 1
+        itm["QualityLabel"].Visible = not audio
+        for i in range(len(QUALITY_SHORT)):
+            itm["Q%d" % i].Visible = not audio
 
 
-def make_choice(prefix, key, idx):
-    def handler(ev):
-        state[key] = idx
-        refresh_choices()
-    return handler
+    def save_all():
+        save_settings({"folder": state["folder"], "mode": state["mode"],
+                       "quality": state["quality"], "target": state["target"]})
 
 
-def show_progress(kind):
-    """kind: running | ok | error"""
-    itm["Cancel"].Visible = kind == "running"
-    itm["Again"].Visible = kind != "running"
-    itm["Reveal"].Visible = kind == "ok"
-    itm["Pct"].Visible = kind == "running"
-    itm["Bar"].Visible = kind != "error"
-    itm["BigIcon"].Text = {"running": "⬇", "ok": "✅", "error": "⚠️"}[kind]
+    def make_choice(prefix, key, idx):
+        def handler(ev):
+            state[key] = idx
+            refresh_choices()
+        return handler
 
 
-def on_close(ev):
-    job = state["job"]
-    if job and not job.done:
-        job.cancel()
-    timer.Stop()
-    save_all()
-    disp.ExitLoop()
+    def show_progress(kind):
+        """kind: running | ok | error"""
+        itm["Cancel"].Visible = kind == "running"
+        itm["Again"].Visible = kind != "running"
+        itm["Reveal"].Visible = kind == "ok"
+        itm["Pct"].Visible = kind == "running"
+        itm["Bar"].Visible = kind != "error"
+        itm["BigIcon"].Text = {"running": "⬇", "ok": "✅", "error": "⚠️"}[kind]
 
 
-def on_paste(ev):
-    url = clipboard_url()
-    if url:
-        itm["Url"].Text = url
-    else:
-        itm["Detect"].Text = "No link found on your clipboard"
-        itm["Detect"].StyleSheet = CSS["detect_bad"]
-    refresh_detect()
+    def on_close(ev):
+        job = state["job"]
+        if job and not job.done:
+            job.cancel()
+        timer.Stop()
+        save_all()
+        disp.ExitLoop()
 
 
-def on_next1(ev):
-    url = current_url()
-    if not url or drm_site(url):
+    def on_paste(ev):
+        url = clipboard_url()
+        if url:
+            itm["Url"].Text = url
+        else:
+            itm["Detect"].Text = "No link found on your clipboard"
+            itm["Detect"].StyleSheet = CSS["detect_bad"]
+        refresh_detect()
+
+
+    def on_next1(ev):
+        url = current_url()
+        if not url or drm_site(url):
+            refresh_detect()
+            go_page(0)
+            return
+        if platform_of(url) in MUSIC_SITES:
+            state["mode"] = 1
+            refresh_choices()
+        itm["LinkEcho"].Text = "%s  ·  %s" % (platform_of(url), url if len(url) < 60 else url[:57] + "...")
+        go_page(1)
+
+
+    def refresh_folder():
+        home = os.path.expanduser("~")
+        path = state["folder"]
+        itm["Browse"].Text = "📁  " + ("~" + path[len(home):] if path.startswith(home) else path)
+
+
+    def on_browse(ev):
+        d = fusion.RequestDir(state["folder"])
+        if d:
+            state["folder"] = str(d).rstrip("/")
+            refresh_folder()
+            save_all()
+
+
+    def on_go(ev):
+        url = current_url()
+        if not url:
+            go_page(0)
+            return
+        save_all()
+        job = Job(url, state["folder"], state["mode"] == 1,
+                  QUALITY_H[state["quality"]])
+        state["job"] = job
+        itm["Bar"].Value = 0
+        itm["Pct"].Text = "0%"
+        itm["ProgTitle"].Text = "Downloading from %s" % platform_of(url)
+        itm["Detail"].Text = "Connecting..."
+        show_progress("running")
+        go_page(2)
+        job.start()
+        timer.Start()
+
+
+    def on_cancel(ev):
+        if state["job"]:
+            state["job"].cancel()
+            itm["Detail"].Text = "Cancelling..."
+
+
+    def on_again(ev):
+        itm["Url"].Text = ""
         refresh_detect()
         go_page(0)
-        return
-    if platform_of(url) in MUSIC_SITES:
-        state["mode"] = 1
-        refresh_choices()
-    itm["LinkEcho"].Text = "%s  ·  %s" % (platform_of(url), url if len(url) < 60 else url[:57] + "...")
-    go_page(1)
 
 
-def refresh_folder():
-    home = os.path.expanduser("~")
-    path = state["folder"]
-    itm["Browse"].Text = "📁  " + ("~" + path[len(home):] if path.startswith(home) else path)
+    def on_reveal(ev):
+        if state["file"]:
+            subprocess.Popen(["open", "-R", state["file"]])
 
 
-def on_browse(ev):
-    d = fusion.RequestDir(state["folder"])
-    if d:
-        state["folder"] = str(d).rstrip("/")
-        refresh_folder()
-        save_all()
+    def on_insta(ev):
+        subprocess.Popen(["open", INSTAGRAM_URL])
 
 
-def on_go(ev):
-    url = current_url()
-    if not url:
-        go_page(0)
-        return
-    save_all()
-    job = Job(url, state["folder"], state["mode"] == 1,
-              QUALITY_H[state["quality"]])
-    state["job"] = job
-    itm["Bar"].Value = 0
-    itm["Pct"].Text = "0%"
-    itm["ProgTitle"].Text = "Downloading from %s" % platform_of(url)
-    itm["Detail"].Text = "Connecting..."
-    show_progress("running")
-    go_page(2)
-    job.start()
-    timer.Start()
-
-
-def on_cancel(ev):
-    if state["job"]:
-        state["job"].cancel()
-        itm["Detail"].Text = "Cancelling..."
-
-
-def on_again(ev):
-    itm["Url"].Text = ""
-    refresh_detect()
-    go_page(0)
-
-
-def on_reveal(ev):
-    if state["file"]:
-        subprocess.Popen(["open", "-R", state["file"]])
-
-
-def on_insta(ev):
-    subprocess.Popen(["open", INSTAGRAM_URL])
-
-
-def check_update_bg():
-    v, code = fetch_latest()
-    if v and code and version_tuple(v) > version_tuple(VERSION):
-        state["update"] = (v, code)
-    state["update_checked"] = True
-
-
-def on_update(ev):
-    upd = state["update"]
-    if not upd:
-        return
-    try:
-        install_update(upd[1])
-        itm["Update"].Text = "✓ v%s installed: close and reopen LinkDrop" % upd[0]
-        itm["Update"].Enabled = False
-    except Exception as e:
-        itm["Update"].Text = "Update failed: %s" % e
-
-
-def on_timer(ev):
-    if state["update"] and itm["Update"].Text == "":
-        itm["Update"].Text = "⬆  Update to v%s" % state["update"][0]
-        itm["Update"].Visible = True
-    job = state["job"]
-    if not job:
-        if state["update_checked"]:
+    def on_timer(ev):
+        job = state["job"]
+        if not job:
             timer.Stop()
-        return
-    itm["Bar"].Value = int(job.percent * 10)
-    itm["Pct"].Text = "%d%%" % int(job.percent)
-    itm["Detail"].Text = job.status
-    if not job.done:
-        return
-    state["job"] = None
-    if job.error:
-        show_progress("error")
-        itm["ProgTitle"].Text = "Cancelled" if job.cancelled else "Download failed"
-        itm["Detail"].Text = job.error
-        return
-    itm["ProgTitle"].Text = "Placing it in DaVinci..."
-    try:
-        msg = place_in_resolve(job.path, state["target"])
-        state["file"] = job.path
-        show_progress("ok")
-        itm["Bar"].Value = 1000
-        itm["ProgTitle"].Text = "All set!"
-        itm["Detail"].Text = "%s\n%s" % (msg, os.path.basename(job.path))
-    except Exception as e:
-        state["file"] = job.path
-        show_progress("error")
-        itm["Reveal"].Visible = True
-        itm["ProgTitle"].Text = "Downloaded, but Resolve had a problem"
-        itm["Detail"].Text = "%s\n%s" % (e, job.path)
+            return
+        itm["Bar"].Value = int(job.percent * 10)
+        itm["Pct"].Text = "%d%%" % int(job.percent)
+        itm["Detail"].Text = job.status
+        if not job.done:
+            return
+        state["job"] = None
+        if job.error:
+            show_progress("error")
+            itm["ProgTitle"].Text = "Cancelled" if job.cancelled else "Download failed"
+            itm["Detail"].Text = job.error
+            return
+        itm["ProgTitle"].Text = "Placing it in DaVinci..."
+        try:
+            msg = place_in_resolve(job.path, state["target"])
+            state["file"] = job.path
+            show_progress("ok")
+            itm["Bar"].Value = 1000
+            itm["ProgTitle"].Text = "All set!"
+            itm["Detail"].Text = "%s\n%s" % (msg, os.path.basename(job.path))
+        except Exception as e:
+            state["file"] = job.path
+            show_progress("error")
+            itm["Reveal"].Visible = True
+            itm["ProgTitle"].Text = "Downloaded, but Resolve had a problem"
+            itm["Detail"].Text = "%s\n%s" % (e, job.path)
 
 
-win.On.LinkDropWin.Close = on_close
-win.On.Url.TextChanged = refresh_detect
-win.On.Url.ReturnPressed = on_next1
-win.On.Paste.Clicked = on_paste
-win.On.Next1.Clicked = on_next1
-win.On.Back2.Clicked = lambda ev: go_page(0)
-win.On.Browse.Clicked = on_browse
-win.On.Go.Clicked = on_go
-win.On.Cancel.Clicked = on_cancel
-win.On.Again.Clicked = on_again
-win.On.Reveal.Clicked = on_reveal
-win.On.Insta.Clicked = on_insta
-win.On.Update.Clicked = on_update
-for _i in range(len(MODE_CARDS)):
-    win.On["Mode%d" % _i].Clicked = make_choice("Mode", "mode", _i)
-for _i in range(len(QUALITY_SHORT)):
-    win.On["Q%d" % _i].Clicked = make_choice("Q", "quality", _i)
-for _i in range(len(TARGET_CARDS)):
-    win.On["T%d" % _i].Clicked = make_choice("T", "target", _i)
-disp.On.Timeout = on_timer
+    win.On.LinkDropWin.Close = on_close
+    win.On.Url.TextChanged = refresh_detect
+    win.On.Url.ReturnPressed = on_next1
+    win.On.Paste.Clicked = on_paste
+    win.On.Next1.Clicked = on_next1
+    win.On.Back2.Clicked = lambda ev: go_page(0)
+    win.On.Browse.Clicked = on_browse
+    win.On.Go.Clicked = on_go
+    win.On.Cancel.Clicked = on_cancel
+    win.On.Again.Clicked = on_again
+    win.On.Reveal.Clicked = on_reveal
+    win.On.Insta.Clicked = on_insta
+    for _i in range(len(MODE_CARDS)):
+        win.On["Mode%d" % _i].Clicked = make_choice("Mode", "mode", _i)
+    for _i in range(len(QUALITY_SHORT)):
+        win.On["Q%d" % _i].Clicked = make_choice("Q", "quality", _i)
+    for _i in range(len(TARGET_CARDS)):
+        win.On["T%d" % _i].Clicked = make_choice("T", "target", _i)
+    disp.On.Timeout = on_timer
 
-itm["Url"].Text = clipboard_url()
-refresh_detect()
-refresh_choices()
-refresh_folder()
-if current_url():
-    on_next1(None)  # link already copied: skip straight to the options
-else:
-    go_page(0)
+    itm["Url"].Text = clipboard_url()
+    refresh_detect()
+    refresh_choices()
+    refresh_folder()
+    if current_url():
+        on_next1(None)  # link already copied: skip straight to the options
+    else:
+        go_page(0)
 
-win.Show()
-threading.Thread(target=check_update_bg, daemon=True).start()
-timer.Start()
-disp.RunLoop()
-win.Hide()
+    if globals().get("_LINKDROP_UPDATED_FROM"):
+        itm["Update"].Text = "✓  Updated to v%s" % VERSION
+        itm["Update"].Visible = True
+
+    win.Show()
+    disp.RunLoop()
+    win.Hide()
+
+
+if not auto_update():
+    main()
