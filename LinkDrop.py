@@ -23,7 +23,7 @@ import shutil
 import subprocess
 
 APP_TITLE = "LinkDrop"
-VERSION = "2.3.2"
+VERSION = "2.4.0"
 REPO = "gabrielxreis/LinkDrop"
 RAW_URL = "https://raw.githubusercontent.com/%s/main/LinkDrop.py" % REPO
 INSTAGRAM_URL = "https://instagram.com/gabrielxreis_"
@@ -339,17 +339,17 @@ def song_from_text(platform, text):
 # -------------------------------------------------------------- download ---
 
 THUMB_DIR = os.path.join(DATA_DIR, "thumbs")
-AUDIO_FORMATS = [("mp3", "MP3", "Compatible, small files"),
-                 ("wav", "WAV", "Lossless, for editing"),
-                 ("aac", "AAC", "High quality, efficient")]
+AUDIO_FORMATS = [("mp3", "MP3", "Small, compatible"),
+                 ("wav", "WAV", "Lossless"),
+                 ("aac", "AAC", "Efficient")]
 AUDIO_QUALITIES = {"mp3": [("best", "Best"), ("320", "320 kbps"), ("128", "128 kbps")],
                    "aac": [("best", "Best"), ("256", "256 kbps"), ("128", "128 kbps")],
                    "wav": [("best", "Lossless")]}
 AUDIO_KBPS = {("mp3", "best"): 245, ("mp3", "320"): 320, ("mp3", "128"): 128,
               ("aac", "best"): 256, ("aac", "256"): 256, ("aac", "128"): 128, ("wav", "best"): 1411}
 VIDEO_RES = [(2160, "4K"), (1440, "1440p"), (1080, "1080p"), (720, "720p")]
-VIDEO_CODECS = [("h264", "H.264", "MP4, small and compatible"),
-                ("prores", "ProRes 422", "MOV, smooth editing, larger")]
+VIDEO_CODECS = [("h264", "H.264", "MP4, compatible"),
+                ("prores", "ProRes 422", "MOV, for editing")]
 PRORES_MBPS = {2160: 590, 1440: 262, 1080: 147, 720: 65, 0: 45}
 
 
@@ -1006,10 +1006,10 @@ def build_css():
         + ("QPushButton:disabled { %s color: rgba(245,247,255,0.32); }" % frame(dis) if dis else
            "QPushButton:disabled { color: rgba(245,247,255,0.30); }"))
     CSS.update({
-        "h1": FONT + "font-size: 27px; font-weight: 700; color: %s; background: transparent;" % TEXT,
-        "sub": FONT + "font-size: 14px; color: %s; background: transparent;" % SECONDARY,
+        "h1": FONT + "font-size: 23px; font-weight: 700; color: %s; background: transparent;" % TEXT,
+        "sub": FONT + "font-size: 13px; color: %s; background: transparent;" % SECONDARY,
         "label": FONT + "font-size: 13px; font-weight: 600; color: %s; background: transparent;" % TEXT,
-        "caption": FONT + "font-size: 12px; color: %s; background: transparent;" % SECONDARY,
+        "caption": FONT + "font-size: 11px; color: %s; background: transparent;" % SECONDARY,
         "box": ("QTextEdit, QLineEdit { " + FONT + "font-size: 14px; padding: 0px 2px; color: %s; "
                 "selection-background-color: %s; " + frame("field_idle") + " }"
                 "QTextEdit:focus, QLineEdit:focus { " + frame("field_focus") + " }") % (TEXT, B2),
@@ -1031,9 +1031,9 @@ def build_css():
         "pager": ("QPushButton { " + FONT + "font-size: 14px; color: %s; background: transparent; border: none;"
                   "padding: 2px 8px; } QPushButton:hover { color: %s; } QPushButton:disabled { color: rgba(245,247,255,0.2); }"
                   % (TEXT, B4)),
-        "link": ("QPushButton { " + FONT + "font-size: 12px; color: %s; background: transparent; border: none; padding: 0px; }"
+        "link": ("QPushButton { " + FONT + "font-size: 12px; color: %s; background: transparent; border: none; padding: 0px; text-align: left; }"
                  "QPushButton:hover { color: %s; }") % (SECONDARY, TEXT),
-        "insta": ("QPushButton { " + FONT + "font-size: 14px; font-weight: 600; color: %s; background: transparent;"
+        "insta": ("QPushButton { " + FONT + "font-size: 13px; font-weight: 600; color: %s; background: transparent;"
                   "border: none; padding: 0px; } QPushButton:hover { color: #FFFFFF; }") % B4,
         "sep": "background: rgba(150,190,255,0.10); min-height: 1px; max-height: 1px;",
     })
@@ -1269,7 +1269,7 @@ LINK_PAGE = [0, 8, 9]   # Pages index of each link-box size   # the link box ste
 RUN_SLOTS = 3
 # one stable window size for every step (resizing per step fought Qt's minimum sizes);
 # only the background mini mode is smaller
-W, H, W_MINI, H_MINI = 700, 800, 420, 150
+W, H, W_MINI, H_MINI = 580, 700, 400, 150
 SLOTS = 4
 TARGETS = ["At the playhead", "At the end of the timeline", "In a new timeline", "Media Pool only"]
 
@@ -1306,7 +1306,7 @@ def main():
             props["IconSize"] = [16, 16]
         return ui.Button(props)
 
-    def card(id_, weight=0, height=74):
+    def card(id_, weight=0, height=64):
         return ui.Label({"ID": id_, "Text": "", "WordWrap": True, "StyleSheet": card_css(), "Weight": weight,
                          "MinimumSize": [0, height], "MaximumSize": [16777215, height]})
 
@@ -1426,32 +1426,30 @@ def main():
         nav(btn("Back3", "  Back", icon="i_back"), ui.HGap(0, 1), btn("Next3", "Start Download  \u2192", "primary")),
     ])
 
-    page_settings = ui.VGroup({"Spacing": 7}, [
+    page_settings = ui.VGroup({"Spacing": 6}, [
         h1("H4", "Settings"),
-        sub("S4", "Where files go and how they're organized. Saved for next time."),
-        ui.Label({"Text": "Save to", "StyleSheet": CSS["label"], "Weight": 0}),
+        sub("S4", "Saved for next time."),
         ui.HGroup({"Weight": 0, "Spacing": 0}, [
             ui.LineEdit({"ID": "SavePath", "ReadOnly": True, "StyleSheet": CSS["field_left"], "Weight": 1}),
             ui.Button({"ID": "Browse2", "Text": "Browse", "StyleSheet": CSS["row_r"].replace("6px 12px", "9px 18px"),
                        "Weight": 0})]),
-        ui.Label({"Text": "File naming", "StyleSheet": CSS["label"], "Weight": 0}),
         ui.HGroup({"Weight": 0, "Spacing": 10}, [
             ui.Button({"ID": "NameOrig", "Text": "Original title", "Checkable": True, "StyleSheet": CSS["pill"], "Weight": 1}),
             ui.Button({"ID": "NameCustom", "Text": "Custom", "Checkable": True, "StyleSheet": CSS["pill"], "Weight": 1})]),
         ui.Stack({"ID": "NameStack", "Weight": 0}, [
             ui.Label({"Text": "Files keep the title from the source.", "StyleSheet": CSS["caption"], "Weight": 0}),
-            ui.LineEdit({"ID": "CustomName", "PlaceholderText": "Name, e.g. Sunday Service (files become Sunday Service 01, 02...)",
+            ui.LineEdit({"ID": "CustomName", "PlaceholderText": "Name (files become Name 01, 02...)",
                          "StyleSheet": CSS["box"], "Weight": 0})]),
         toggle("Imp", "Import into current Resolve bin", "i_film"),
         toggle("Sub", "Create subfolders", "i_tree"),
-        ui.LineEdit({"ID": "SubName", "PlaceholderText": "Subfolder name (optional). Empty: one folder per source, like \"YouTube\"",
+        ui.LineEdit({"ID": "SubName", "PlaceholderText": "Subfolder name (empty: one per source)",
                      "StyleSheet": CSS["box"], "Weight": 0}),
         toggle("Rev", "Reveal in Finder when finished" if not IS_WIN else "Show in Explorer when finished", "i_finder"),
         ui.HGroup({"Weight": 0, "Spacing": 10}, [
             ui.Label({"Text": "Place in timeline", "StyleSheet": CSS["label"], "Weight": 0}),
             ui.HGap(0, 1),
             ui.ComboBox({"ID": "Place", "StyleSheet": CSS["combo"], "Weight": 0, "ToolTip": "Where the clip goes"})]),
-        ui.Label({"ID": "TargetInfo", "Text": "", "StyleSheet": card_css("panel"), "Weight": 0, "MinimumSize": [0, 44]}),
+        ui.Label({"ID": "TargetInfo", "Text": "", "StyleSheet": CSS["caption"], "Weight": 0, "MinimumSize": [0, 22]}),
         ui.VGap(0, 1),
         nav(ui.HGap(0, 1), btn("SettingsDone", "Done  \u2713", "primary")),
     ])
@@ -1459,8 +1457,8 @@ def main():
     page_run = ui.VGroup({"Spacing": 10}, [
         h1("H5", "Downloading"),
         sub("S5", "Your media is being prepared for DaVinci Resolve."),
-        ui.Label({"ID": "Overall", "Text": "", "StyleSheet": card_css("panel"), "Weight": 0, "MinimumSize": [0, 128]}),
-    ] + [card("D%d" % i, height=96) for i in range(RUN_SLOTS)] + [
+        ui.Label({"ID": "Overall", "Text": "", "StyleSheet": card_css("panel"), "Weight": 0, "MinimumSize": [0, 112]}),
+    ] + [card("D%d" % i, height=86) for i in range(RUN_SLOTS)] + [
         pager("D"),
         ui.VGap(0, 1),
         nav(btn("BgRun", "  Run in Background", icon="i_bg"), ui.HGap(0, 1), btn("CancelAll", "  Cancel All", icon="i_close")),
@@ -1494,8 +1492,8 @@ def main():
         "MinimumSize": [W, H], "MaximumSize": [W, H],
         "StyleSheet": window_css(GLOWS["blue"]),
     }, ui.HGroup({"Spacing": 0}, [
-        ui.HGap(26, 0),
-        ui.VGroup({"Spacing": 0}, [ui.VGap(6, 0), ui.VGroup({"Spacing": 12}, [
+        ui.HGap(18, 0),
+        ui.VGroup({"Spacing": 0}, [ui.VGap(2, 0), ui.VGroup({"Spacing": 6}, [
         ui.HGroup({"Weight": 0, "Spacing": 10}, [ui.HGap(0, 1)] +
                   [ui.Label({"ID": "Dot%d" % i, "Text": "", "StyleSheet": dot_css(1 if i == 0 else 0), "Weight": 0})
                    for i in range(4)] + [ui.HGap(0, 1)]),
@@ -1503,19 +1501,20 @@ def main():
                                                 page_run, page_done, page_error] + link_pages[1:]),
         ui.Label({"ID": "Sep", "Text": "", "StyleSheet": CSS["sep"], "Weight": 0}),
         ui.HGroup({"Weight": 0, "Spacing": 0}, [
-            ui.HGroup({"Weight": 0, "Spacing": 0, "MinimumSize": [230, 0], "MaximumSize": [230, 40]}, [
+            ui.HGroup({"Weight": 0, "Spacing": 0, "MinimumSize": [190, 26], "MaximumSize": [190, 40]}, [
                 ui.Button({"ID": "Browse", "Text": "", "Flat": True, "StyleSheet": CSS["link"], "Weight": 0,
-                           "ToolTip": "Where downloads are saved. Click to change."}),
+                           "Icon": ui.Icon({"File": icon_path("i_folder")}), "IconSize": [22, 22],
+                           "MinimumSize": [0, 26], "ToolTip": "Choose where downloads are saved (remembered)"}),
                 ui.HGap(0, 1)]),
             ui.HGap(0, 1),
             ui.Button({"ID": "Insta", "Text": "@gabrielxreis_", "Flat": True, "StyleSheet": CSS["insta"],
-                       "ToolTip": "Follow on Instagram: " + INSTAGRAM_URL, "Weight": 0}),
+                       "ToolTip": "Follow on Instagram: " + INSTAGRAM_URL, "Weight": 0, "MinimumSize": [0, 26]}),
             ui.HGap(0, 1),
             ui.Label({"ID": "Ver", "Text": "", "StyleSheet": CSS["caption"], "Weight": 0,
                       "Alignment": {"AlignRight": True, "AlignVCenter": True},
-                      "MinimumSize": [230, 0], "MaximumSize": [230, 40]})]),
-    ]), ui.VGap(10, 0)]),
-        ui.HGap(26, 0),
+                      "MinimumSize": [190, 26], "MaximumSize": [190, 40]})]),
+    ]), ui.VGap(4, 0)]),
+        ui.HGap(18, 0),
     ]))
     mini = disp.AddWindow({
         "ID": "LinkDropMini",
@@ -1996,21 +1995,23 @@ def main():
                 itm["TargetInfo"].Text = ('%s&nbsp;&nbsp;<span style="color:%s; font-size:13px;">Resolve target: '
                                           '%s &gt; Media Pool &gt; %s</span>' % (img_tag("i_info", 16), B4,
                                                                                 html.escape(tgt[0]), html.escape(tgt[1])))
-                itm["TargetInfo"].StyleSheet = card_css("panel")
+                itm["TargetInfo"].StyleSheet = CSS["caption"]
             else:
                 itm["TargetInfo"].Text = ('%s&nbsp;&nbsp;<span style="color:%s; font-size:13px;">No project is open in '
                                           'Resolve. Files will be saved but not imported.</span>'
                                           % (img_tag("i_warn", 16), ERROR))
-                itm["TargetInfo"].StyleSheet = card_css("error")
+                itm["TargetInfo"].StyleSheet = CSS["caption"]
         else:
             itm["TargetInfo"].Text = ('%s&nbsp;&nbsp;<span style="color:%s; font-size:13px;">Files are only saved to '
                                       'your folder.</span>' % (img_tag("i_info", 16), SECONDARY))
-            itm["TargetInfo"].StyleSheet = card_css()
+            itm["TargetInfo"].StyleSheet = CSS["caption"]
         refresh_folder()
 
     def refresh_folder():
         path = st["folder"]
-        itm["Browse"].Text = "Save to " + ("~" + path[len(HOME):] if path.startswith(HOME) else path)
+        short = "~" + path[len(HOME):] if path.startswith(HOME) else path
+        itm["Browse"].Text = ""
+        itm["Browse"].ToolTip = "Saving to %s. Click to change (remembered)." % short
 
     def to_settings(ev=None):
         st["return_page"] = st["page"]
@@ -2120,7 +2121,7 @@ def main():
         sheen = None if calm or st["finished"] else (time.time() % 1.8) / 1.8
         itm["Overall"].Text = (
             '<table width="100%%" cellspacing="0" cellpadding="0"><tr>'
-            '<td valign="bottom"><span style="font-size:40px; font-weight:700; color:%s;">%d</span>'
+            '<td valign="bottom"><span style="font-size:34px; font-weight:700; color:%s;">%d</span>'
             '<span style="font-size:20px; font-weight:600; color:%s;">%%</span><br>'
             '<span style="font-size:12px; color:%s;">Overall progress</span></td>'
             '<td align="right" valign="bottom"><span style="font-size:14px; font-weight:600; color:%s;">%d of %d files</span><br>'
