@@ -25,26 +25,17 @@ Video services with DRM (Netflix, Prime Video, Disney+, Max) can't be downloaded
 
 ## Install
 
-### macOS
+| | Download |
+|---|---|
+| **macOS** | [LinkDrop-Installer-mac.dmg](https://github.com/gabrielxreis/LinkDrop/releases/latest/download/LinkDrop-Installer-mac.dmg) |
+| **Windows** | [LinkDrop-Installer-windows.exe](https://github.com/gabrielxreis/LinkDrop/releases/latest/download/LinkDrop-Installer-windows.exe) |
 
-1. [Download LinkDrop](https://github.com/gabrielxreis/LinkDrop/archive/refs/heads/main.zip) and unzip it.
-2. Double-click **`Install LinkDrop.command`**. If macOS blocks it, right-click it and choose **Open**.
-3. In DaVinci Resolve: **Workspace > Scripts > LinkDrop**.
+- **macOS:** open the DMG and double-click **Install LinkDrop**. The first time, macOS may block it: right-click the app and choose **Open**.
+- **Windows:** run the installer. If SmartScreen appears, click **More info > Run anyway**.
 
-### Windows
+Then in DaVinci Resolve: **Workspace > Scripts > LinkDrop**.
 
-1. [Download LinkDrop](https://github.com/gabrielxreis/LinkDrop/archive/refs/heads/main.zip) and unzip it.
-2. Double-click **`Install LinkDrop (Windows).bat`**. If SmartScreen appears, click **More info > Run anyway**.
-3. In DaVinci Resolve: **Workspace > Scripts > LinkDrop**.
-
-The installers don't need Homebrew or admin rights. They put everything LinkDrop uses in its own folder:
-
-| | macOS | Windows |
-|---|---|---|
-| Tools (yt-dlp, ffmpeg, ffprobe, deno) | `~/Library/Application Support/LinkDrop/bin` | `%APPDATA%\LinkDrop\bin` |
-| Script | `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility` | `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility` |
-
-If Python 3 is missing (Resolve needs it to run scripts), the installer adds it. On macOS that's the only step that asks for your password.
+The installer removes any previous version (your settings are kept) and downloads everything fresh, including the latest LinkDrop from this repository. No admin rights needed, except on a Mac that doesn't have Python 3 yet.
 
 ## Updates
 
@@ -64,6 +55,8 @@ Premium dark glass: deep black with electric-blue light on the edges, emerald fo
 ## Releasing an update
 
 Bump `VERSION` in `LinkDrop.py` and push to `main`. Keep the file ASCII-only (use `\u` escapes) so older versions can always read the update.
+
+To refresh the installers: `installer/build-mac.sh`, then `LANG=en_US.UTF-8 makensis -DVERSION=x.y.z installer/windows/LinkDrop.nsi`, then attach both files to a new GitHub release (`gh release create vX.Y.Z installer/LinkDrop-Installer-*`).
 
 ---
 
