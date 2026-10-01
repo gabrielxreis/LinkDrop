@@ -1,49 +1,70 @@
-# ⬇ LinkDrop for DaVinci Resolve
+# LinkDrop for DaVinci Resolve
 
 Paste a link, get the clip on your timeline.
 
-LinkDrop is a DaVinci Resolve script that downloads a video (or just the audio) from a link and drops it right where you need it: at the playhead, at the end of the timeline, in a new timeline or only in the Media Pool.
+LinkDrop is a DaVinci Resolve script that downloads videos or audio from links and drops them right where you need them: at the playhead, at the end of the timeline, in a new timeline or only in the Media Pool. Works on macOS and Windows.
 
-## Features
+## How it works
 
-- **Reads your clipboard.** Copy a link, open LinkDrop and it's already there.
-- **Video + audio (H.264 MP4)** or **audio only (lossless WAV)**.
-- **Max quality picker:** Best, 4K, 1080p, 720p.
-- **Smart placement.** At the playhead it uses a free track, so nothing on your timeline gets overwritten.
-- **Resolve-friendly codecs.** Picks H.264/AAC and converts anything Resolve can't decode.
-- **Organized.** Every download goes into a `Downloads` bin in the Media Pool.
-- **Auto-updates from GitHub.** Every time you open LinkDrop it checks this repo and, if there is a newer version, installs it and opens it right away.
+1. **Add links.** Paste one or more links (one per line). If you copied a link before opening LinkDrop, it's already there.
+2. **Format.** Video (MP4, H.264 + AAC) or Audio (lossless WAV). Pick the maximum quality for video.
+3. **Place in Resolve.** At the playhead (on a free track, nothing gets overwritten), at the end of the timeline, in a new timeline or in the Media Pool only.
+4. **Download.** Links download one after another and land in Resolve automatically. Batches at the playhead are placed back to back.
+
+Every file also goes into a `Downloads` bin in the Media Pool.
 
 ## Supported sites
 
-YouTube, YouTube Music, Instagram, TikTok, X/Twitter, Vimeo, Facebook, SoundCloud, Twitch, public Google Drive/Dropbox links and [1,000+ other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
+YouTube, YouTube Music, Instagram, TikTok, X, Facebook, Vimeo, SoundCloud, Twitch and [1,000+ other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
-DRM-protected services (Spotify, Apple Music, Deezer, Tidal, Netflix...) **can't** be downloaded.
+**Spotify, Apple Music and Deezer:** their audio is DRM-protected, so LinkDrop reads the song and artist from the link, finds the track on YouTube and downloads that audio. Use links to single songs.
 
-## Install (macOS)
+Video services with DRM (Netflix, Prime Video, Disney+, Max) can't be downloaded.
 
-1. [Download this repo as ZIP](https://github.com/gabrielxreis/LinkDrop/archive/refs/heads/main.zip) and unzip it.
-2. Double-click **`Install LinkDrop.command`** (if macOS blocks it: right-click > Open).
-3. In DaVinci Resolve: **Workspace > Scripts > Utility > LinkDrop**.
+## Install
 
-The installer sets up `yt-dlp`, `ffmpeg` and `deno` with Homebrew, then copies `LinkDrop.py` to:
+### macOS
 
-```
-~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/
-```
+1. [Download LinkDrop](https://github.com/gabrielxreis/LinkDrop/archive/refs/heads/main.zip) and unzip it.
+2. Double-click **`Install LinkDrop.command`**. If macOS blocks it, right-click it and choose **Open**.
+3. In DaVinci Resolve: **Workspace > Scripts > LinkDrop**.
+
+### Windows
+
+1. [Download LinkDrop](https://github.com/gabrielxreis/LinkDrop/archive/refs/heads/main.zip) and unzip it.
+2. Double-click **`Install LinkDrop (Windows).bat`**. If SmartScreen appears, click **More info > Run anyway**.
+3. In DaVinci Resolve: **Workspace > Scripts > LinkDrop**.
+
+The installers don't need Homebrew or admin rights. They put everything LinkDrop uses in its own folder:
+
+| | macOS | Windows |
+|---|---|---|
+| Tools (yt-dlp, ffmpeg, ffprobe, deno) | `~/Library/Application Support/LinkDrop/bin` | `%APPDATA%\LinkDrop\bin` |
+| Script | `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility` | `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility` |
+
+If Python 3 is missing (Resolve needs it to run scripts), the installer adds it. On macOS that's the only step that asks for your password.
+
+## Updates
+
+- **LinkDrop updates itself** every time it opens: it checks this repo, installs the newer version and opens it right away. Offline, it opens the installed version.
+- **The downloader (yt-dlp) updates itself** once a day in the background, so sites keep working.
+
+## Design
+
+The interface follows Apple's Human Interface Guidelines: one decision per step, a single accent color, spring-based motion that can change course mid-animation, determinate progress whenever possible, completion confirmed with a symbol and a system sound, and **Reduce Motion** respected on macOS and Windows.
 
 ## Troubleshooting
 
-- **A site stopped working:** sites change often, so update the downloader with `brew upgrade yt-dlp`.
-- **LinkDrop doesn't show up in the Scripts menu:** restart Resolve after installing.
-- **Window doesn't open:** script windows need DaVinci Resolve Studio in recent versions.
+- **LinkDrop isn't in the Scripts menu:** restart Resolve after installing.
+- **The window doesn't open:** recent versions of Resolve need DaVinci Resolve Studio for script windows.
+- **A site stopped working:** run the installer again to get the latest tools.
 
 ## Releasing an update
 
-Bump `VERSION` in `LinkDrop.py` and push to `main`. Every LinkDrop updates itself the next time it opens (offline it just opens the installed version).
+Bump `VERSION` in `LinkDrop.py` and push to `main`. Keep the file ASCII-only (use `\u` escapes) so older versions can always read the update.
 
 ---
 
-Use it only for content you have the rights to.
+Use LinkDrop only for content you have the rights to.
 
 Made by [@gabrielxreis_](https://instagram.com/gabrielxreis_) · [gabrielxreis.com](https://gabrielxreis.com)
