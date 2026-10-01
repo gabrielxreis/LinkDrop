@@ -4,7 +4,7 @@
 #
 # Installs everything LinkDrop needs into its own folder (no Homebrew, no admin rights
 # unless Python has to be installed):
-#   ~/Library/Application Support/LinkDrop/bin  ->  yt-dlp, ffmpeg, ffprobe, deno
+#   ~/Library/Application Support/LinkDrop/bin  ->  yt-dlp.pyz, ffmpeg, ffprobe, deno
 #   Resolve's Scripts/Utility folder            ->  LinkDrop.py
 
 REPO_RAW="https://raw.githubusercontent.com/gabrielxreis/LinkDrop/main"
@@ -46,11 +46,15 @@ else
   ok "Python 3 installed"
 fi
 
-# 2. yt-dlp (downloader)
+# 2. yt-dlp (downloader). The zipapp runs on Python 3 and starts in under a second
+#    (the standalone macOS binary unpacks itself on every run, which takes ~6 s).
+PY3="$(ls -d /Library/Frameworks/Python.framework/Versions/3.*/bin/python3 2>/dev/null | sort -V | tail -1)"
+[ -n "$PY3" ] || PY3="$(command -v python3)"
 echo "  Downloading yt-dlp..."
-get "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" "$BIN/yt-dlp"
-chmod +x "$BIN/yt-dlp"
-ok "yt-dlp $("$BIN/yt-dlp" --version 2>/dev/null)"
+get "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" "$BIN/yt-dlp.pyz"
+rm -f "$BIN/yt-dlp"
+YTV="$("$PY3" "$BIN/yt-dlp.pyz" --version 2>/dev/null)" || fail "yt-dlp didn't start with $PY3."
+ok "yt-dlp $YTV"
 
 # 3. ffmpeg + ffprobe (merging and converting)
 echo "  Downloading ffmpeg..."

@@ -6,12 +6,13 @@ LinkDrop is a DaVinci Resolve script that downloads videos or audio from links a
 
 ## How it works
 
-1. **Add links.** Paste one or more links (one per line). If you copied a link before opening LinkDrop, it's already there.
-2. **Format.** Video (MP4, H.264 + AAC) or Audio (lossless WAV). Pick the maximum quality for video.
-3. **Place in Resolve.** At the playhead (on a free track, nothing gets overwritten), at the end of the timeline, in a new timeline or in the Media Pool only.
-4. **Download.** Links download one after another and land in Resolve automatically. Batches at the playhead are placed back to back.
-
-Every file also goes into a `Downloads` bin in the Media Pool.
+1. **Add links.** Paste one or more links, one per line. A link you copied before opening LinkDrop is already there.
+2. **Analyzing links.** LinkDrop reads each link's real title, duration, thumbnail and available resolutions. A broken link never blocks the rest.
+3. **Choose format.** Audio: MP3, WAV or AAC, with quality, Keep metadata and Embed artwork. Video: H.264 (MP4) or ProRes 422 (MOV, converted after download), with only the resolutions the sources really offer.
+4. **Review items.** Pick what to download, switch single items between video and audio, and see the estimated size.
+5. **Download settings.** Folder, original or custom file names, import into the current Resolve bin, subfolders by source, reveal when finished, and where the clip goes (playhead on a free track, end of timeline, new timeline or Media Pool only).
+6. **Downloading.** Real progress for every file. **Run in Background** shrinks LinkDrop to a small progress window.
+7. **All done** or **Some files need attention**, with Open Folder, Copy Report, Report Issue and Retry Failed.
 
 ## Supported sites
 
@@ -51,7 +52,7 @@ If Python 3 is missing (Resolve needs it to run scripts), the installer adds it.
 
 ## Design
 
-The interface follows Apple's Human Interface Guidelines: one decision per step, a single accent color, spring-based motion that can change course mid-animation, determinate progress whenever possible, completion confirmed with a symbol and a system sound, and **Reduce Motion** respected on macOS and Windows.
+Premium dark glass: deep black with electric-blue light on the edges, emerald for success and rose for errors. Motion follows Apple's Human Interface Guidelines: short spring-based transitions, real progress only, completion confirmed with a symbol and a system sound, and **Reduce Motion** respected on macOS and Windows.
 
 ## Troubleshooting
 
