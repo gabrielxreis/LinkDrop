@@ -23,7 +23,7 @@ import shutil
 import subprocess
 
 APP_TITLE = "LinkDrop"
-VERSION = "2.4.0"
+VERSION = "2.4.1"
 REPO = "gabrielxreis/LinkDrop"
 RAW_URL = "https://raw.githubusercontent.com/%s/main/LinkDrop.py" % REPO
 INSTAGRAM_URL = "https://instagram.com/gabrielxreis_"
@@ -118,6 +118,8 @@ def make_env():
     env["PATH"] = os.pathsep.join([p for p in EXTRA_PATHS if p not in parts] + parts)
     # Resolve runs scripts with an ASCII locale; force UTF-8 so titles like "It\u2019s" don't crash
     env["PYTHONIOENCODING"] = "utf-8"
+    # yt-dlp runs on Python: without this its progress lines sit in a buffer until the download ends
+    env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONUTF8"] = "1"
     if not IS_WIN:
         env["LANG"] = env["LC_ALL"] = "en_US.UTF-8"
@@ -519,7 +521,8 @@ class Analyzer(Proc):
         self._spawn(["curl", "-fsSL", "--max-time", "15", "-A", UA, url], self._lookup_done)
 
     def _lookup_done(self, code):
-        song = song_from_text(self.platform, "\n".join(self.tail)) if code == 0 else None
+        # read the whole response: the song title sits at the top of long pages (Apple Music)
+        song = song_from_text(self.platform, self._read(self.out_path)) if code == 0 else None
         if not song:
             self.state = "failed"
             return self._fail("Couldn't read the song from this %s link." % self.platform)
@@ -702,6 +705,7 @@ class Job(Proc):
         o = self.opts
         cmd = ytdlp_cmd() + ["--no-playlist", "--newline", "--no-colors", "--windows-filenames",
                "--encoding", "utf-8", "-o", self._template(), "--print", "after_move:FINAL:%(filepath)s",
+               "--progress",  # --print turns on quiet mode, which would hide the progress
                "--progress-template",
                "download:PROG:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
                "--ffmpeg-location", os.path.dirname(self.ffmpeg)]
@@ -9507,6 +9511,11 @@ def update_downloader():
             f.write(str(time.time()))
         subprocess.Popen(cmd + ["-U"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL, env=ENV, creationflags=NO_WINDOW)
+        if not IS_WIN and len(cmd) == 2:
+            # browser impersonation for sites like TikTok (the Windows yt-dlp.exe already includes it)
+            subprocess.Popen([cmd[0], "-m", "pip", "install", "--user", "--quiet", "--disable-pip-version-check",
+                              "--upgrade", "curl_cffi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             stdin=subprocess.DEVNULL, env=ENV)
     except Exception:
         pass
 

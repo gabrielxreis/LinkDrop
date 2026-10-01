@@ -57,6 +57,8 @@ case "$STEP" in
     rm -f "$BIN/yt-dlp"
     PY="$(python3_path)"; [ -n "$PY" ] || PY="$(command -v python3)"
     "$PY" "$BIN/yt-dlp.pyz" --version >/dev/null 2>&1 || { echo "yt-dlp didn't start with $PY." >&2; exit 1; }
+    # browser impersonation, needed by some sites (TikTok); optional, so a failure here doesn't stop the install
+    "$PY" -m pip install --user --quiet --disable-pip-version-check --upgrade curl_cffi >/dev/null 2>&1 || true
     ;;
   ffmpeg)
     for tool in ffmpeg ffprobe; do
