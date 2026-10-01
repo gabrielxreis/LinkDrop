@@ -2,3 +2,11 @@
 __pycache__/
 *.new
 .rollback-*.py
+installer/build/swift/
+installer/build/stage/
+installer/build/*.app/
+installer/build/rw.dmg
+installer/build/*.html
+installer/build/*.iconset/
+installer/build/F.iconset/
+installer/LinkDrop-Installer-*
