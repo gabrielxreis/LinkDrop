@@ -1109,7 +1109,9 @@ class ApiCall(Proc):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.body, f)
         self.req = path
-        self._spawn(["curl", "-sS", "--max-time", "35", "-X", "POST", "-H", "Content-Type: application/json",
+        # -L follows the site's redirects between its domains (307 keeps the POST and its body)
+        self._spawn(["curl", "-sS", "-L", "--max-redirs", "3", "--proto-redir", "=https", "--max-time", "35",
+                     "-X", "POST", "-H", "Content-Type: application/json",
                      "-H", "Accept: application/json", "--data-binary", "@" + path, "-w", "\n%{http_code}",
                      "%s/%s" % (self.bases[0], self.name)], self._done, merge=False)
 
