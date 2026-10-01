@@ -23,7 +23,7 @@ import shutil
 import subprocess
 
 APP_TITLE = "LinkDrop"
-VERSION = "2.4.1"
+VERSION = "2.5.0"
 REPO = "gabrielxreis/LinkDrop"
 RAW_URL = "https://raw.githubusercontent.com/%s/main/LinkDrop.py" % REPO
 INSTAGRAM_URL = "https://instagram.com/gabrielxreis_"
@@ -935,6 +935,143 @@ def place_in_resolve(path, target, cursor=None):
     return "Placed at the playhead (%s)." % rec_tc, end
 
 
+# --------------------------------------------------------------- license ---
+# One key per computer. The server (Supabase edge functions) signs a token with its RSA private key;
+# LinkDrop checks it with the public key below, so it keeps working offline for a few days.
+
+LICENSE_API = "https://gveupqzeqnkixudcrvxl.supabase.co/functions/v1"
+LICENSE_SITE = "https://linkdrop.gabrielxreis.com"
+LICENSE_PATH = os.path.join(DATA_DIR, "license.json")
+LICENSE_N = int(
+    "0xc990c78d2e1f022257cdbfd651c15d0096c405a97942145133637a01139191fd98b3431fb081fd3aa9d630570ba366a95e646f9078c01dba6cc4679b00187ddad697043c45bf39ec2669671fefbd43ff64b3eef13aeff8d473789fe0730f55088da1013c64a3f710bb8aa585b5c73ea96e17d2f7ad8c9fbd8285b54f3f8df07e0dce594d1b63ee9c72cad9e99ba14f333667cfc62b100ddb334537b3ec30dedafd8004d74f43963560444d57122fb2855d140019d1485763b0a7ae7cc1dc135d87102adfd549cb44ed59ffa8bb202c71dab6359025d1746f1ecd80e650fbb9d28a7ebb288ad3914d20bb56289713ec2c5f777133b3729e0972307cb18ae4a26b", 16)
+LICENSE_E = 65537
+PRICE_TEXT = "R$ 19,90 / year"
+
+
+def _b64url_dec(s):
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def verify_license_token(token):
+    """Returns the token's payload when the RSA signature (PKCS#1 v1.5, SHA-256) is valid, else None."""
+    try:
+        import hashlib
+        body_b64, sig_b64 = token.split(".")
+        body = _b64url_dec(body_b64)
+        size = (LICENSE_N.bit_length() + 7) // 8
+        em = pow(int.from_bytes(_b64url_dec(sig_b64), "big"), LICENSE_E, LICENSE_N).to_bytes(size, "big")
+        info = bytes.fromhex("3031300d060960864801650304020105000420") + hashlib.sha256(body).digest()
+        if em != b"\x00\x01" + b"\xff" * (size - 3 - len(info)) + b"\x00" + info:
+            return None
+        return json.loads(body.decode("utf-8"))
+    except Exception:
+        return None
+
+
+_MACHINE = []
+
+
+def machine_id():
+    """sha256 of the computer's hardware ID (never sent raw). Stable across network changes and reinstalls."""
+    if _MACHINE:
+        return _MACHINE[0]
+    import hashlib
+    raw = ""
+    if IS_WIN:
+        out = run(["reg", "query", r"HKLM\SOFTWARE\Microsoft\Cryptography", "/v", "MachineGuid"], 10)
+        m = re.search(r"MachineGuid\s+REG_SZ\s+(\S+)", out)
+        raw = m.group(1) if m else ""
+    else:
+        out = run(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], 10)
+        m = re.search(r'"IOPlatformUUID" = "([^"]+)"', out)
+        raw = m.group(1) if m else ""
+    if not raw:  # last resort: hardware MAC of the first interface
+        import uuid
+        raw = "%012x" % uuid.getnode()
+    _MACHINE.append(hashlib.sha256(("linkdrop:" + raw.strip().upper()).encode()).hexdigest())
+    return _MACHINE[0]
+
+
+def machine_name():
+    if IS_WIN:
+        return os.environ.get("COMPUTERNAME", "Windows PC")
+    return run(["scutil", "--get", "ComputerName"], 5).strip() or "Mac"
+
+
+def load_license():
+    try:
+        with open(LICENSE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_license(data):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(LICENSE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+def license_state(data=None):
+    """('ok', payload) when this computer holds a valid, unexpired, correctly signed token;
+    otherwise (reason, payload or None). Reasons: none | invalid | other_machine | expired | stale."""
+    data = load_license() if data is None else data
+    tok = data.get("token")
+    if not tok:
+        return "none", None
+    p = verify_license_token(tok)
+    if not p:
+        return "invalid", None
+    if p.get("machine") != machine_id():
+        return "other_machine", p
+    now = time.time()
+    if now >= p.get("expires", 0):
+        return "expired", p
+    if now >= p.get("valid_until", 0):
+        return "stale", p      # needs a check with the server (offline too long)
+    return "ok", p
+
+
+class ApiCall(Proc):
+    """POSTs JSON to a license function with curl, without blocking Resolve. result: dict or None."""
+
+    def __init__(self, name, body):
+        Proc.__init__(self)
+        self.name, self.body = name, body
+        self.result = None
+
+    def start(self):
+        path = self.out_path + ".req"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.body, f)
+        self.req = path
+        self._spawn(["curl", "-sS", "--max-time", "20", "-X", "POST", "-H", "Content-Type: application/json",
+                     "--data-binary", "@" + path, "%s/%s" % (LICENSE_API, self.name)], self._done, merge=False)
+
+    def _done(self, code):
+        text = self._read(self.out_path)
+        try:
+            self.result = json.loads(text)
+        except Exception:
+            self.result = None
+            self.error = "Couldn't reach the LinkDrop server. Check your internet connection."
+        try:
+            os.remove(self.req)
+        except Exception:
+            pass
+        self.done = True
+        self._cleanup()
+
+
+def license_body(key):
+    return {"key": key, "machine_id": machine_id(), "machine_name": machine_name(),
+            "os": "Windows" if IS_WIN else "macOS", "app_version": VERSION}
+
+
 # ---------------------------------------------------------------- update ---
 
 def auto_update():
@@ -1040,6 +1177,12 @@ def build_css():
         "insta": ("QPushButton { " + FONT + "font-size: 13px; font-weight: 600; color: %s; background: transparent;"
                   "border: none; padding: 0px; } QPushButton:hover { color: #FFFFFF; }") % B4,
         "sep": "background: rgba(150,190,255,0.10); min-height: 1px; max-height: 1px;",
+        "trial": ("QPushButton { " + FONT + "font-size: 12px; font-weight: 600; color: %s; background: transparent;"
+                  "border: none; padding: 0px; text-align: right; } QPushButton:hover { color: #FFFFFF; }") % B4,
+        "trial_low": ("QPushButton { " + FONT + "font-size: 12px; font-weight: 600; color: %s; background: transparent;"
+                      "border: none; padding: 0px; text-align: right; } QPushButton:hover { color: #FFFFFF; }") % ERROR,
+        "msg_err": FONT + "font-size: 13px; color: %s; background: transparent;" % ERROR,
+        "msg_ok": FONT + "font-size: 13px; color: %s; background: transparent;" % SUCCESS,
     })
     for alias in ("seg_l", "seg_r", "seg_m", "seg_one"):
         CSS[alias] = CSS["pill"]
@@ -1266,6 +1409,7 @@ class Spring(object):
 
 # pages
 P_LINKS, P_ANALYZE, P_FORMAT, P_REVIEW, P_SETTINGS, P_RUN, P_DONE, P_ERROR = range(8)
+P_LICENSE = 10   # pages 8 and 9 are the bigger link-box layouts
 PAGE_DOT = {P_LINKS: 0, P_ANALYZE: 0, P_SETTINGS: 0, P_FORMAT: 1, P_REVIEW: 2, P_RUN: 3, P_ERROR: 3, P_DONE: 3}
 LINK_SIZES = [76, 140, 220]
 LINK_WEIGHTS = [(3.0, 1.0, 3.0), (1.4, 1.6, 1.4), (0.6, 2.4, 0.6)]   # (space above, box, space below)
@@ -1360,6 +1504,20 @@ def main():
         ])
 
     link_pages = [links_layout(i) for i in range(len(LINK_SIZES))]
+
+    page_license = ui.VGroup({"Spacing": 12}, [
+        ui.VGap(0, 1),
+        h1("H9", "Activate LinkDrop"),
+        sub("S9", "Enter your license key to unlock LinkDrop."),
+        ui.VGap(6, 0),
+        ui.LineEdit({"ID": "LicKey", "PlaceholderText": "LD-XXXX-XXXX-XXXX", "StyleSheet": CSS["box"], "Weight": 0}),
+        ui.Label({"Text": "No key yet? Start a free 24-hour trial or get a license (%s) on the site." % PRICE_TEXT,
+                  "WordWrap": True, "StyleSheet": CSS["caption"], "Weight": 0, "MinimumSize": [0, 18]}),
+        ui.Label({"ID": "LicMsg", "Text": "", "WordWrap": True, "StyleSheet": CSS["caption"], "Weight": 0,
+                  "MinimumSize": [0, 40]}),
+        ui.VGap(0, 1),
+        nav(btn("GetKey", "  Get a key", icon="i_next"), ui.HGap(0, 1), btn("Activate", "Activate  \u2192", "primary")),
+    ])
 
     page_analyze = ui.VGroup({"Spacing": 10}, [
         h1("H1", "Analyzing links"),
@@ -1498,11 +1656,17 @@ def main():
     }, ui.HGroup({"Spacing": 0}, [
         ui.HGap(18, 0),
         ui.VGroup({"Spacing": 0}, [ui.VGap(2, 0), ui.VGroup({"Spacing": 6}, [
-        ui.HGroup({"Weight": 0, "Spacing": 10}, [ui.HGap(0, 1)] +
-                  [ui.Label({"ID": "Dot%d" % i, "Text": "", "StyleSheet": dot_css(1 if i == 0 else 0), "Weight": 0})
-                   for i in range(4)] + [ui.HGap(0, 1)]),
+        ui.HGroup({"Weight": 0, "Spacing": 10}, [
+            ui.HGroup({"Weight": 0, "MinimumSize": [170, 24], "MaximumSize": [170, 24]}, [ui.HGap(0, 1)]),
+            ui.HGap(0, 1)] +
+            [ui.Label({"ID": "Dot%d" % i, "Text": "", "StyleSheet": dot_css(1 if i == 0 else 0), "Weight": 0})
+             for i in range(4)] + [
+            ui.HGap(0, 1),
+            ui.Button({"ID": "TrialBtn", "Text": "", "Flat": True, "StyleSheet": CSS["trial"], "Weight": 0,
+                       "MinimumSize": [170, 24], "MaximumSize": [170, 24],
+                       "ToolTip": "Free trial. Click to get a license."})]),
         ui.Stack({"ID": "Pages", "Weight": 1}, [link_pages[0], page_analyze, page_format, page_review, page_settings,
-                                                page_run, page_done, page_error] + link_pages[1:]),
+                                                page_run, page_done, page_error] + link_pages[1:] + [page_license]),
         ui.Label({"ID": "Sep", "Text": "", "StyleSheet": CSS["sep"], "Weight": 0}),
         ui.HGroup({"Weight": 0, "Spacing": 0}, [
             ui.HGroup({"Weight": 0, "Spacing": 0, "MinimumSize": [190, 26], "MaximumSize": [190, 40]}, [
@@ -1547,7 +1711,8 @@ def main():
         "vcodec": S("vcodec", "h264"), "max_h": S("max_h", 1080), "keep_meta": bool(S("keep_meta", True)),
         "embed_art": bool(S("embed_art", True)), "custom": bool(S("custom", False)), "custom_name": S("custom_name", ""),
         "import": bool(S("import", True)), "subfolders": bool(S("subfolders", False)), "reveal": bool(S("reveal", False)),
-        "subname": S("subname", ""), "return_page": P_LINKS, "box": 0, "sync": False, "done_note": "",
+        "subname": S("subname", ""), "return_page": P_LINKS,
+        "lic": None, "lic_call": None, "lic_purpose": None, "lic_key": None, "clock_on": False, "lock_msg": None, "box": 0, "sync": False, "done_note": "",
         "target": int(S("target", 0)), "folder": S("folder") or DEFAULT_FOLDER,
         "page": P_LINKS, "items": [], "analyzers": [], "pages": {"A": 0, "R": 0, "D": 0, "E": 0}, "follow": True,
         "current": None, "cursor": None, "stopped": False, "mini": False, "finished": False, "imported_to": None,
@@ -1559,6 +1724,7 @@ def main():
     for i in range(4):
         springs["dot%d" % i] = Spring(1.0 if i == 0 else 0.0, 0.2)
     timer = ui.Timer({"ID": "Tick", "Interval": 16})
+    clock = ui.Timer({"ID": "Clock", "Interval": 1000})
 
     def save_all():
         keys = ("mode", "audio_fmt", "audio_q", "vcodec", "max_h", "keep_meta", "embed_art", "custom", "custom_name",
@@ -1695,10 +1861,104 @@ def main():
         else:
             itm["Count%d" % st["box"]].Text = "Your clipboard doesn't have a link. Copy one in your browser first."
 
+    # -------------------------------------------------------------- license ---
+    def licensed():
+        return st["lic"] is not None and time.time() < st["lic"].get("expires", 0)
+
+    def fmt_left(sec):
+        sec = max(0, int(sec))
+        return "%d:%02d:%02d" % (sec // 3600, (sec % 3600) // 60, sec % 60)
+
+    def refresh_trial():
+        lic = st["lic"]
+        trial = bool(lic) and lic.get("kind") == "trial"
+        itm["TrialBtn"].Visible = trial
+        if trial:
+            left = lic.get("expires", 0) - time.time()
+            itm["TrialBtn"].Text = "Trial  %s left" % fmt_left(left)
+            itm["TrialBtn"].StyleSheet = CSS["trial_low" if left < 3600 else "trial"]
+            if not st["clock_on"]:
+                st["clock_on"] = True
+                clock.Start()
+        elif st["clock_on"]:
+            st["clock_on"] = False
+            clock.Stop()
+
+    def show_license(message="", error=True):
+        saved = load_license()
+        if saved.get("key") and not (itm["LicKey"].Text or "").strip():
+            itm["LicKey"].Text = saved["key"]
+        itm["LicMsg"].Text = message
+        itm["LicMsg"].StyleSheet = CSS["msg_err" if error and message else "caption"]
+        itm["Activate"].Enabled = True
+        go(P_LICENSE)
+
+    def lock(message):
+        """Back to the activation screen; waits for a running download to finish first."""
+        st["lic"] = None
+        refresh_trial()
+        data = load_license()
+        data.pop("token", None)
+        save_license(data)
+        if st["current"] is not None or analysis_busy():
+            st["lock_msg"] = message
+        else:
+            show_license(message)
+
+    def license_call(name, key, purpose):
+        call = ApiCall(name, license_body(key))
+        st["lic_call"], st["lic_purpose"], st["lic_key"] = call, purpose, key
+        call.start()
+        kick()
+
+    def on_activate(ev=None):
+        key = re.sub(r"\s+", "", (itm["LicKey"].Text or "")).upper()
+        if not re.match(r"^LDT?-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$", key):
+            itm["LicMsg"].Text = "That doesn't look like a LinkDrop key (LD-XXXX-XXXX-XXXX)."
+            itm["LicMsg"].StyleSheet = CSS["msg_err"]
+            return
+        itm["LicKey"].Text = key
+        itm["LicMsg"].Text = "Activating..."
+        itm["LicMsg"].StyleSheet = CSS["caption"]
+        itm["Activate"].Enabled = False
+        license_call("license-activate", key, "activate")
+
+    def tick_license():
+        call = st["lic_call"]
+        call.poll()
+        if not call.done:
+            return
+        st["lic_call"] = None
+        res, purpose, key = call.result, st["lic_purpose"], st["lic_key"]
+        if res and res.get("ok") and res.get("token"):
+            payload = verify_license_token(res["token"])
+            if payload and payload.get("machine") == machine_id():
+                save_license({"key": key, "token": res["token"]})
+                st["lic"] = payload
+                refresh_trial()
+                if st["page"] == P_LICENSE:
+                    itm["LicMsg"].Text = ""
+                    go(P_LINKS)
+                return
+            res = {"ok": False, "message": "The server's answer couldn't be verified. Try again."}
+        if purpose == "activate":
+            itm["Activate"].Enabled = True
+            itm["LicMsg"].Text = (res or {}).get("message") or call.error or "Activation failed. Try again."
+            itm["LicMsg"].StyleSheet = CSS["msg_err"]
+        elif res and res.get("status") in ("revoked", "expired", "disabled", "invalid"):
+            lock(res.get("message") or "This computer is no longer licensed.")
+        elif purpose == "resume" and st["page"] == P_LICENSE:
+            itm["LicMsg"].Text = (res or {}).get("message") or call.error or ""
+            itm["LicMsg"].StyleSheet = CSS["msg_err"]
+        # offline during a background check: keep working on the saved token
+
     # -------------------------------------------------------- 2. analyze ---
     def start_analysis(ev=None):
         urls = links_in_box()
         if not urls:
+            return
+        if not licensed():
+            show_license("Activate LinkDrop to download.")
             return
         for a in st["analyzers"]:
             a.cancel()
@@ -2166,6 +2426,12 @@ def main():
             next_job()
 
     def finish_all():
+        if st.get("lock_msg"):
+            msg, st["lock_msg"] = st["lock_msg"], None
+            st["finished"] = True
+            show(["BgRun", "CancelAll"], False)
+            show_license(msg)
+            return
         st["finished"] = True
         st["done_note"] = ""
         show(["BgRun", "CancelAll"], False)
@@ -2377,8 +2643,15 @@ def main():
                 render_run()
         elif st["page"] == P_RUN and not springs["overall"].settled():
             render_run()
+        if st["lic_call"] is not None:
+            tick_license()
+        if st["clock_on"] and int(now) != st.get("clock_s"):
+            st["clock_s"] = int(now)
+            refresh_trial()
+            if st["lic"] and now >= st["lic"].get("expires", 0):
+                lock("Your free trial ended. Get a license on the LinkDrop site to keep using it.")
         apply_motion(dt)
-        busy = analysis_busy() or st["current"] is not None
+        busy = analysis_busy() or st["current"] is not None or st["lic_call"] is not None
         if not busy and not motion_busy():
             timer.Stop()
 
@@ -2389,6 +2662,7 @@ def main():
         if st["current"] and st["current"]["job"]:
             st["current"]["job"].cancel()
         timer.Stop()
+        clock.Stop()
         save_all()
         mini.Hide()
         disp.ExitLoop()
@@ -2445,6 +2719,10 @@ def main():
     on.Report.Clicked = on_report_issue
     on.RetryFailed.Clicked = on_retry_failed
     on.Insta.Clicked = lambda ev: open_url(INSTAGRAM_URL)
+    on.TrialBtn.Clicked = lambda ev: open_url(LICENSE_SITE)
+    on.GetKey.Clicked = lambda ev: open_url(LICENSE_SITE)
+    on.Activate.Clicked = on_activate
+    on.LicKey.ReturnPressed = on_activate
     disp.On.Timeout = on_tick
 
     # ---------------------------------------------------------------- start ---
@@ -2459,8 +2737,26 @@ def main():
     urls = read_clipboard()
     set_links_text("\n".join(urls) if urls else "")
 
+    lic_state, lic_payload = license_state()
+    saved_key = load_license().get("key")
+    start_page = LINK_PAGE[st["box"]]
+    if lic_state == "ok":
+        st["lic"] = lic_payload
+        license_call("license-validate", saved_key, "background")
+    else:
+        st["page"] = P_LICENSE
+        start_page = P_LICENSE
+        itm["LicKey"].Text = saved_key or ""
+        if saved_key and lic_state in ("stale", "expired", "invalid"):
+            itm["LicMsg"].Text = "Checking your license..."
+            license_call("license-validate", saved_key, "resume")
+    for i in range(4):
+        springs["dot%d" % i].snap(1.0 if (i == 0 and start_page != P_LICENSE) else 0.0)
+        itm["Dot%d" % i].StyleSheet = dot_css(springs["dot%d" % i].value)
+    refresh_trial()
+
     win.WindowOpacity = 0.0
-    itm["Pages"].CurrentIndex = LINK_PAGE[st["box"]]
+    itm["Pages"].CurrentIndex = start_page
     win.Show()
     lock_size(W, H)
     springs["opacity"].target = 1.0
