@@ -4,7 +4,7 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY   (provided by Supabase)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-export const SITE = "https://linkdrop.gabrielxreis.com";
+export const SITE = "https://linkdrop.com.br";
 export const OFFLINE_GRACE_DAYS = 7;   // a token keeps the plugin unlocked this long without internet
 export const MAX_REVOKES = 5;          // computers a key can be removed from...
 export const REVOKE_COOLDOWN_DAYS = 5; // ...before removing is blocked for this long

@@ -940,8 +940,10 @@ def place_in_resolve(path, target, cursor=None):
 # The last good answer is stored locally, encrypted with a key derived from this computer, so LinkDrop
 # keeps working offline for OFFLINE_GRACE_DAYS and the file is useless if copied to another PC.
 
-LICENSE_API = "https://linkdrop.gabrielxreis.com/api/public"
-LICENSE_SITE = "https://linkdrop.gabrielxreis.com"
+# official domain first; the previous one keeps working as a fallback (e.g. while a certificate renews)
+LICENSE_APIS = ["https://linkdrop.com.br/api/public", "https://linkdrop.gabrielxreis.com/api/public"]
+LICENSE_API = LICENSE_APIS[0]
+LICENSE_SITE = "https://linkdrop.com.br"
 LICENSE_PATH = os.path.join(DATA_DIR, "license.dat")
 OFFLINE_GRACE_DAYS = 7
 PRICE_TEXT = "R$ 19,90 / year"
@@ -1099,6 +1101,7 @@ class ApiCall(Proc):
         self.name, self.body = name, body
         self.result = None
         self.http = 0
+        self.bases = [LICENSE_API] + [b for b in LICENSE_APIS if b != LICENSE_API]
 
     def start(self):
         path = self.out_path + ".req"
@@ -1108,7 +1111,7 @@ class ApiCall(Proc):
         self.req = path
         self._spawn(["curl", "-sS", "--max-time", "35", "-X", "POST", "-H", "Content-Type: application/json",
                      "-H", "Accept: application/json", "--data-binary", "@" + path, "-w", "\n%{http_code}",
-                     "%s/%s" % (LICENSE_API, self.name)], self._done, merge=False)
+                     "%s/%s" % (self.bases[0], self.name)], self._done, merge=False)
 
     def _done(self, code):
         text = self._read(self.out_path).rstrip()
@@ -1122,6 +1125,13 @@ class ApiCall(Proc):
             self.result = res if isinstance(res, dict) else None
         except Exception:
             self.result = None
+        if self.result is None and len(self.bases) > 1:
+            self.bases.pop(0)  # this address didn't answer: try the next one
+            try:
+                os.remove(self.req)
+            except Exception:
+                pass
+            return self.start()
         if self.result is None:
             self.error = "Couldn't reach the LinkDrop server. Check your internet connection."
         try:
