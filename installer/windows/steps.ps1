@@ -14,7 +14,10 @@ $Data    = Join-Path $env:APPDATA "LinkDrop"
 $Bin     = Join-Path $Data "bin"
 $Util    = Join-Path $env:APPDATA "Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility"
 $Tmp     = Join-Path $env:TEMP "linkdrop-install"
-$PyExe   = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+# Python is mirrored on the LinkDrop GitHub (release "deps"); python.org is the fallback
+$PyUrls  = @("https://github.com/gabrielxreis/LinkDrop/releases/download/deps/python-3.12.10-amd64.exe",
+             "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe")
+$PySha   = "67B5635E80EA51072B87941312D00EC8927C4DB9BA18938F7AD2D27B328B95FB"
 
 function Fail($msg) { [Console]::Error.WriteLine($msg); exit 1 }
 function Get-File($url, $out) {
@@ -63,12 +66,15 @@ switch ($Step) {
     }
     "python" {
         if (Test-Python) { exit 0 }
-        if (Get-Command winget -ErrorAction SilentlyContinue) {
-            & winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements | Out-Null
-            if (Test-Python) { exit 0 }
-        }
         $py = Join-Path $Tmp "python.exe"
-        Get-File $PyExe $py
+        $got = $false
+        foreach ($u in $PyUrls) {
+            try {
+                Invoke-WebRequest -Uri $u -OutFile $py -UseBasicParsing
+                if ((Get-FileHash $py -Algorithm SHA256).Hash -eq $PySha) { $got = $true; break }
+            } catch { }
+        }
+        if (-not $got) { Fail "Couldn't download Python 3. Check your internet connection and try again." }
         $p = Start-Process -FilePath $py -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1" -Wait -PassThru
         if ($p.ExitCode -ne 0) { Fail "Python wasn't installed (code $($p.ExitCode)). Install it from python.org and run this again." }
         exit 0
