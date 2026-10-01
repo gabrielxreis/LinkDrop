@@ -945,7 +945,30 @@ LICENSE_SITE = "https://linkdrop.gabrielxreis.com"
 LICENSE_PATH = os.path.join(DATA_DIR, "license.dat")
 OFFLINE_GRACE_DAYS = 7
 PRICE_TEXT = "R$ 19,90 / year"
-LOCKED_STATUSES = ("expired", "revoked", "invalid", "disabled", "not_found", "inactive")
+LOCKED_STATUSES = ("expired", "revoked", "invalid", "disabled", "not_found", "inactive", "no_trial")
+# public half of the site's signing key: every "active" answer carries a token signed with the private half
+LICENSE_N = int(
+    "0xc990c78d2e1f022257cdbfd651c15d0096c405a97942145133637a01139191fd98b3431fb081fd3aa9d630570ba366a95e646f9078c01dba6cc4679b00187ddad697043c45bf39ec2669671fefbd43ff64b3eef13aeff8d473789fe0730f55088da1013c64a3f710bb8aa585b5c73ea96e17d2f7ad8c9fbd8285b54f3f8df07e0dce594d1b63ee9c72cad9e99ba14f333667cfc62b100ddb334537b3ec30dedafd8004d74f43963560444d57122fb2855d140019d1485763b0a7ae7cc1dc135d87102adfd549cb44ed59ffa8bb202c71dab6359025d1746f1ecd80e650fbb9d28a7ebb288ad3914d20bb56289713ec2c5f777133b3729e0972307cb18ae4a26b", 16)
+LICENSE_E = 65537
+
+
+def verify_license_token(token):
+    """Payload of a server token (base64url JSON + "." + RSA PKCS#1 v1.5 SHA-256 signature), or None."""
+    try:
+        import hashlib
+
+        def dec(x):
+            return base64.urlsafe_b64decode(x + "=" * (-len(x) % 4))
+        body_b64, sig_b64 = token.split(".")
+        body = dec(body_b64)
+        size = (LICENSE_N.bit_length() + 7) // 8
+        em = pow(int.from_bytes(dec(sig_b64), "big"), LICENSE_E, LICENSE_N).to_bytes(size, "big")
+        info = bytes.fromhex("3031300d060960864801650304020105000420") + hashlib.sha256(body).digest()
+        if em != b"\x00\x01" + b"\xff" * (size - 3 - len(info)) + b"\x00" + info:
+            return None
+        return json.loads(body.decode("utf-8"))
+    except Exception:
+        return None
 
 
 _MACHINE = []
@@ -2037,12 +2060,20 @@ def main():
         res, purpose, key = call.result, st["lic_purpose"], st["lic_key"]
         ok = bool(res) and res.get("ok") is True
         status = (res or {}).get("status")
+        signed = None
+        if ok and res.get("token"):
+            signed = verify_license_token(res["token"])
+            if not signed or signed.get("machine") != machine_id():
+                ok, res = False, {"ok": False, "status": "error",
+                                  "message": "The license server's answer couldn't be verified. Try again."}
+            elif signed.get("expires") and not res.get("expires_at"):
+                res["expires_at"] = signed["expires"]
         for b in ("Activate", "StartTrial"):
             itm[b].Enabled = True
 
         if purpose == "activate":
             if ok and status in (None, "active", "trial"):
-                accept({"mode": "paid", "key": key, "status": status or "active",
+                accept({"mode": "paid", "key": key, "status": status or "active", "signed": bool(signed),
                         "expires": parse_time(res.get("expires_at")), "plan": res.get("plan")})
             else:
                 set_msg(api_message(res, call.error or "Activation failed. Try again."), "msg_err")
@@ -2070,8 +2101,6 @@ def main():
                     data["expires"] = parse_time(res["expires_at"])
                 accept(data)
             elif res is not None and (status in LOCKED_STATUSES or res.get("ok") is False):
-                if data.get("mode") == "trial" and status not in LOCKED_STATUSES:
-                    return  # the trial check isn't conclusive: keep the local 24 h
                 lock(api_message(res, "This computer is no longer licensed."))
             elif purpose == "resume" and st["page"] == P_LICENSE:
                 set_msg(call.error or "Couldn't check your license. Connect to the internet and try again.",
