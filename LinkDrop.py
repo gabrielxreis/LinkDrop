@@ -1106,7 +1106,7 @@ class ApiCall(Proc):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.body, f)
         self.req = path
-        self._spawn(["curl", "-sS", "--max-time", "20", "-X", "POST", "-H", "Content-Type: application/json",
+        self._spawn(["curl", "-sS", "--max-time", "35", "-X", "POST", "-H", "Content-Type: application/json",
                      "-H", "Accept: application/json", "--data-binary", "@" + path, "-w", "\n%{http_code}",
                      "%s/%s" % (LICENSE_API, self.name)], self._done, merge=False)
 
@@ -1502,7 +1502,7 @@ LINK_PAGE = [0, 8, 9]   # Pages index of each link-box size   # the link box ste
 RUN_SLOTS = 3
 # one stable window size for every step (resizing per step fought Qt's minimum sizes);
 # only the background mini mode is smaller
-W, H, W_MINI, H_MINI = 580, 700, 400, 150
+W, H, W_MINI, H_MINI = 580, 720, 400, 150
 SLOTS = 4
 TARGETS = ["At the playhead", "At the end of the timeline", "In a new timeline", "Media Pool only"]
 
@@ -1596,12 +1596,12 @@ def main():
         sub("S9", "Enter your license key to unlock LinkDrop."),
         ui.VGap(6, 0),
         ui.LineEdit({"ID": "LicKey", "PlaceholderText": "LD-XXXX-XXXX-XXXX", "StyleSheet": CSS["box"], "Weight": 0}),
-        ui.Label({"Text": "No key yet? Try it free for 24 hours, or get a license (%s) on the site." % PRICE_TEXT,
+        ui.Label({"Text": "No key yet? Get a free 24-hour trial key or a license (%s) on the site." % PRICE_TEXT,
                   "WordWrap": True, "StyleSheet": CSS["caption"], "Weight": 0, "MinimumSize": [0, 18]}),
         ui.Label({"ID": "LicMsg", "Text": "", "WordWrap": True, "StyleSheet": CSS["caption"], "Weight": 0,
                   "MinimumSize": [0, 40]}),
         ui.VGap(0, 1),
-        nav(btn("StartTrial", "Start free 24-hour trial"), btn("GetKey", "  Get a key", icon="i_next"),
+        nav(btn("StartTrial", "Get a free trial key"), btn("GetKey", "  Buy a license", icon="i_next"),
             ui.HGap(0, 1), btn("Activate", "Activate  \u2192", "primary")),
     ])
 
@@ -1747,13 +1747,13 @@ def main():
         ui.HGap(18, 0),
         ui.VGroup({"Spacing": 0}, [ui.VGap(2, 0), ui.VGroup({"Spacing": 6}, [
         ui.HGroup({"Weight": 0, "Spacing": 10}, [
-            ui.HGroup({"Weight": 0, "MinimumSize": [170, 24], "MaximumSize": [170, 24]}, [ui.HGap(0, 1)]),
+            ui.HGroup({"Weight": 0, "MinimumSize": [170, 16], "MaximumSize": [170, 16]}, [ui.HGap(0, 1)]),
             ui.HGap(0, 1)] +
             [ui.Label({"ID": "Dot%d" % i, "Text": "", "StyleSheet": dot_css(1 if i == 0 else 0), "Weight": 0})
              for i in range(4)] + [
             ui.HGap(0, 1),
             ui.Button({"ID": "TrialBtn", "Text": "", "Flat": True, "StyleSheet": CSS["trial"], "Weight": 0,
-                       "MinimumSize": [170, 24], "MaximumSize": [170, 24],
+                       "MinimumSize": [170, 16], "MaximumSize": [170, 16],
                        "ToolTip": "Free trial. Click to get a license."})]),
         ui.Stack({"ID": "Pages", "Weight": 1}, [link_pages[0], page_analyze, page_format, page_review, page_settings,
                                                 page_run, page_done, page_error] + link_pages[1:] + [page_license]),
@@ -2024,7 +2024,7 @@ def main():
         if not re.match(r"^[A-Z0-9]{2,6}(-[A-Z0-9]{4}){2,4}$", key):
             set_msg("That doesn't look like a LinkDrop key (LD-XXXX-XXXX-XXXX).", "msg_err")
             return
-        set_msg("Activating...")
+        set_msg("Activating... this can take a few seconds.")
         itm["Activate"].Enabled = itm["StartTrial"].Enabled = False
         license_call("license-activate", license_body(key), "activate", key)
 
@@ -2073,8 +2073,10 @@ def main():
 
         if purpose == "activate":
             if ok and status in (None, "active", "trial"):
-                accept({"mode": "paid", "key": key, "status": status or "active", "signed": bool(signed),
-                        "expires": parse_time(res.get("expires_at")), "plan": res.get("plan")})
+                trial = (status == "trial" or key.startswith("LDT-") or (signed or {}).get("kind") == "trial"
+                         or res.get("plan") == "trial")
+                accept({"mode": "trial" if trial else "paid", "key": key, "status": status or "active",
+                        "signed": bool(signed), "expires": parse_time(res.get("expires_at")), "plan": res.get("plan")})
             else:
                 set_msg(api_message(res, call.error or "Activation failed. Try again."), "msg_err")
         elif purpose == "trial":
@@ -2877,9 +2879,9 @@ def main():
     on.RetryFailed.Clicked = on_retry_failed
     on.Insta.Clicked = lambda ev: open_url(INSTAGRAM_URL)
     on.TrialBtn.Clicked = lambda ev: open_url(LICENSE_SITE)
-    on.GetKey.Clicked = lambda ev: open_url(LICENSE_SITE)
+    on.GetKey.Clicked = lambda ev: open_url(LICENSE_SITE + "/account")
     on.Activate.Clicked = on_activate
-    on.StartTrial.Clicked = on_start_trial
+    on.StartTrial.Clicked = lambda ev: open_url(LICENSE_SITE + "/account")
     on.Deactivate.Clicked = on_deactivate
     on.LicKey.ReturnPressed = on_activate
     disp.On.Timeout = on_tick
