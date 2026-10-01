@@ -1979,8 +1979,10 @@ def main():
     def refresh_license_row():
         lic = st["lic"] or {}
         if lic.get("mode") == "paid":
-            until = time.strftime("%d/%m/%Y", time.localtime(lic["expires"])) if lic.get("expires") else ""
-            itm["LicInfo"].Text = "License %s%s" % (mask_key(lic.get("key")), ("  \u00b7  valid until " + until) if until else "")
+            lifetime = lic.get("plan") == "lifetime" or not lic.get("expires") or lic["expires"] - time.time() > 50 * 365 * 86400
+            until = "" if lifetime else time.strftime("%d/%m/%Y", time.localtime(lic["expires"]))
+            itm["LicInfo"].Text = "%s %s%s" % ("Lifetime license" if lifetime else "License", mask_key(lic.get("key")),
+                                               ("  \u00b7  valid until " + until) if until else "")
             itm["Deactivate"].Enabled = True
         elif lic.get("mode") == "trial":
             itm["LicInfo"].Text = "Free trial on this computer"
