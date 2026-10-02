@@ -23,7 +23,7 @@ import shutil
 import subprocess
 
 APP_TITLE = "LinkDrop"
-VERSION = "2.5.0"
+VERSION = "2.5.1"
 REPO = "gabrielxreis/LinkDrop"
 RAW_URL = "https://raw.githubusercontent.com/%s/main/LinkDrop.py" % REPO
 INSTAGRAM_URL = "https://instagram.com/gabrielxreis_"
@@ -1518,6 +1518,38 @@ W, H, W_MINI, H_MINI = 580, 720, 400, 150
 SLOTS = 4
 TARGETS = ["At the playhead", "At the end of the timeline", "In a new timeline", "Media Pool only"]
 
+# Keyboard shortcut that opens LinkDrop (macOS): Resolve has no shortcuts for scripts, but macOS App Shortcuts
+# (NSUserKeyEquivalents) work on any menu item, including Workspace > Scripts > LinkDrop. Read at Resolve launch.
+# "^+" fires on Ctrl + Shift + = (the + key); ^ Ctrl, $ Shift, ~ Option, @ Cmd.
+SHORTCUTS = [("Off", ""), ("Ctrl + Shift + +", "^+"), ("Ctrl + Shift + L", "^$l"), ("Ctrl + Option + L", "^~l"),
+             ("Cmd + Shift + L", "@$l"), ("Ctrl + Shift + D", "^$d")]
+RESOLVE_DOMAIN = "com.blackmagic-design.DaVinciResolve"
+
+
+def apply_shortcut(code):
+    """Sets (or removes, for "") the LinkDrop menu shortcut in Resolve's macOS App Shortcuts; keeps any others."""
+    if IS_WIN:
+        return False
+    try:
+        import plistlib
+        raw = subprocess.run(["defaults", "export", RESOLVE_DOMAIN, "-"], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, timeout=10).stdout
+        current = dict((plistlib.loads(raw) if raw else {}).get("NSUserKeyEquivalents") or {})
+        if code:
+            current["LinkDrop"] = code
+        else:
+            current.pop("LinkDrop", None)
+        if current:
+            args = ["defaults", "write", RESOLVE_DOMAIN, "NSUserKeyEquivalents", "-dict"]
+            for k, v in current.items():
+                args += [k, v]
+        else:
+            args = ["defaults", "delete", RESOLVE_DOMAIN, "NSUserKeyEquivalents"]
+        subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        return True
+    except Exception:
+        return False
+
 
 def check_css():
     on, off = icon_path("chk_on"), icon_path("chk_off")
@@ -1715,7 +1747,10 @@ def main():
             ui.Button({"ID": "Deactivate", "Text": "Deactivate this computer", "Flat": True, "StyleSheet": CSS["link"],
                        "Weight": 0, "ToolTip": "Frees your key so you can use it on another computer"})]),
         ui.VGap(0, 1),
-        nav(ui.HGap(0, 1), btn("SettingsDone", "Done  \u2713", "primary")),
+        nav(ui.Label({"Text": "Shortcut", "StyleSheet": CSS["label"], "Weight": 0}),
+            ui.ComboBox({"ID": "Shortcut", "StyleSheet": CSS["combo"], "Weight": 0,
+                         "ToolTip": "Keyboard shortcut that opens LinkDrop in DaVinci Resolve"}),
+            ui.HGap(0, 1), btn("SettingsDone", "Done  \u2713", "primary")),
     ])
 
     page_run = ui.VGroup({"Spacing": 10}, [
@@ -1806,6 +1841,8 @@ def main():
     itm = win.GetItems()
     for t in TARGETS:
         itm["Place"].AddItem(t)
+    for t, _ in SHORTCUTS:
+        itm["Shortcut"].AddItem(t)
 
     # --------------------------------------------------------------- state ---
     st = {
@@ -1815,7 +1852,7 @@ def main():
         "import": bool(S("import", True)), "subfolders": bool(S("subfolders", False)), "reveal": bool(S("reveal", False)),
         "subname": S("subname", ""), "return_page": P_LINKS,
         "lic": None, "lic_call": None, "lic_purpose": None, "lic_key": None, "clock_on": False, "lock_msg": None, "box": 0, "sync": False, "done_note": "",
-        "target": int(S("target", 0)), "folder": S("folder") or DEFAULT_FOLDER,
+        "target": int(S("target", 0)), "shortcut": int(S("shortcut", -1)), "folder": S("folder") or DEFAULT_FOLDER,
         "page": P_LINKS, "items": [], "analyzers": [], "pages": {"A": 0, "R": 0, "D": 0, "E": 0}, "follow": True,
         "current": None, "cursor": None, "stopped": False, "mini": False, "finished": False, "imported_to": None,
         "last": time.time(), "fade": None, "pending": None, "glow": GLOWS["blue"], "glow_from": GLOWS["blue"],
@@ -1830,7 +1867,7 @@ def main():
 
     def save_all():
         keys = ("mode", "audio_fmt", "audio_q", "vcodec", "max_h", "keep_meta", "embed_art", "custom", "custom_name",
-                "import", "subfolders", "reveal", "target", "folder", "subname")
+                "import", "subfolders", "reveal", "target", "folder", "subname", "shortcut")
         save_settings({k: st[k] for k in keys})
 
     def lock_size(w, h):
@@ -2414,6 +2451,7 @@ def main():
 
     # ------------------------------------------------------- 5. settings ---
     def refresh_settings():
+        itm["S4"].Text = "Saved for next time."
         path = st["folder"]
         itm["SavePath"].Text = "~" + path[len(HOME):] if path.startswith(HOME) else path
         itm["NameOrig"].Checked, itm["NameCustom"].Checked = not st["custom"], st["custom"]
@@ -2424,6 +2462,10 @@ def main():
         set_switch("Rev", st["reveal"])
         itm["Place"].CurrentIndex = st["target"]
         itm["Place"].Enabled = st["import"]
+        itm["Shortcut"].CurrentIndex = max(0, st["shortcut"])
+        itm["Shortcut"].Enabled = not IS_WIN
+        if IS_WIN:
+            itm["Shortcut"].ToolTip = "Keyboard shortcuts are available on Mac."
         if st["import"]:
             tgt = resolve_target()
             if tgt:
@@ -2881,6 +2923,23 @@ def main():
     on.NameOrig.Clicked = lambda ev: (st.update({"custom": False}), refresh_settings(), save_all())
     on.NameCustom.Clicked = lambda ev: (st.update({"custom": True}), refresh_settings(), save_all())
     on.Place.CurrentIndexChanged = lambda ev: (st.update({"target": itm["Place"].CurrentIndex}), save_all())
+
+    def shortcut_changed(ev):
+        i = itm["Shortcut"].CurrentIndex
+        if IS_WIN or i < 0 or i == st["shortcut"]:
+            return
+        st["shortcut"] = i
+        save_all()
+        if apply_shortcut(SHORTCUTS[i][1]):
+            itm["S4"].Text = ("Shortcut off after you restart DaVinci Resolve." if not SHORTCUTS[i][1]
+                              else "Restart DaVinci Resolve once, then press %s." % SHORTCUTS[i][0])
+    on.Shortcut.CurrentIndexChanged = shortcut_changed
+    if st["shortcut"] < 0:
+        # first run: Ctrl + Shift + + on the Mac (takes effect the next time Resolve starts)
+        st["shortcut"] = 0 if IS_WIN else 1
+        if not IS_WIN:
+            apply_shortcut(SHORTCUTS[1][1])
+        save_all()
     on.BgRun.Clicked = on_background
     on.CancelAll.Clicked = on_cancel_all
     mini.On.Expand.Clicked = on_expand

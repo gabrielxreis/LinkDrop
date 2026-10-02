@@ -13,7 +13,7 @@ LinkDrop is a DaVinci Resolve script that downloads videos or audio from links a
 5. **Downloading.** Real progress for every file. **Run in Background** shrinks LinkDrop to a small progress window.
 6. **All done** or **Some files need attention**, with Open Folder, Copy Report, Report Issue and Retry Failed.
 
-**Settings** (gear button on the first screen, saved for next time): download folder, original or custom file names, import into the current Resolve bin, subfolders (with an optional fixed name), reveal when finished, and where the clip goes in the timeline.
+**Settings** (gear button on the first screen, saved for next time): download folder, original or custom file names, import into the current Resolve bin, subfolders (with an optional fixed name), reveal when finished, where the clip goes in the timeline, and a keyboard shortcut to open LinkDrop (Mac, default Ctrl + Shift + +; restart Resolve after changing it).
 
 ## Supported sites
 
@@ -43,7 +43,7 @@ LinkDrop needs a license key, entered once per computer.
 - **macOS:** open the DMG and double-click **Install LinkDrop**. The first time, macOS may block it: right-click the app and choose **Open**.
 - **Windows:** run the installer. If SmartScreen appears, click **More info > Run anyway**.
 
-Then in DaVinci Resolve: **Workspace > Scripts > LinkDrop**.
+Then in DaVinci Resolve: **Workspace > Scripts > LinkDrop**, or press **Ctrl + Shift + +** on a Mac (after restarting Resolve once).
 
 The installer removes any previous version (your settings are kept) and downloads everything fresh, including the latest LinkDrop from this repository. No admin rights needed, except on a Mac that doesn't have Python 3 yet.
 
