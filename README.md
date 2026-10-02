@@ -23,6 +23,16 @@ YouTube, YouTube Music, Instagram, TikTok, X, Facebook, Vimeo, SoundCloud, Twitc
 
 Video services with DRM (Netflix, Prime Video, Disney+, Max) can't be downloaded.
 
+## License
+
+LinkDrop needs a license key, entered once per computer.
+
+- **Free trial:** 24 hours. Get a trial key at [linkdrop.com.br](https://linkdrop.com.br/account) (one trial per computer).
+- **License:** R$ 19,90 per year, one computer per key. To move it, deactivate it in LinkDrop (Settings) or revoke the computer on your account page.
+- LinkDrop checks the license each time it opens and keeps working offline for up to 7 days.
+
+**Requires DaVinci Resolve Studio** for the LinkDrop window. On Windows, Python 3 must be installed for all users (the installer handles it).
+
 ## Install
 
 | | Download |
@@ -49,6 +59,7 @@ Premium dark glass: deep black with electric-blue light on the edges, emerald fo
 ## Troubleshooting
 
 - **LinkDrop isn't in the Scripts menu:** restart Resolve after installing.
+- **LinkDrop isn't in the menu on Windows:** DaVinci needs Python 3 installed for all users; run the installer again.
 - **The window doesn't open:** recent versions of Resolve need DaVinci Resolve Studio for script windows.
 - **A site stopped working:** run the installer again to get the latest tools.
 

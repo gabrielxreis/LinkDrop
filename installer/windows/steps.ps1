@@ -14,7 +14,10 @@ $Data    = Join-Path $env:APPDATA "LinkDrop"
 $Bin     = Join-Path $Data "bin"
 $Util    = Join-Path $env:APPDATA "Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility"
 $Tmp     = Join-Path $env:TEMP "linkdrop-install"
-$PyExe   = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+# Python is mirrored on the LinkDrop GitHub (release "deps"); python.org is the fallback
+$PyUrls  = @("https://github.com/gabrielxreis/LinkDrop/releases/download/deps/python-3.12.10-amd64.exe",
+             "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe")
+$PySha   = "67B5635E80EA51072B87941312D00EC8927C4DB9BA18938F7AD2D27B328B95FB"
 
 function Fail($msg) { [Console]::Error.WriteLine($msg); exit 1 }
 function Get-File($url, $out) {
@@ -25,15 +28,16 @@ function Get-File($url, $out) {
     Fail "Couldn't download $url. Check your internet connection and try again."
 }
 function Test-Python {
-    foreach ($cmd in @("py", "python", "python3")) {
-        try {
-            $v = & $cmd --version 2>&1
-            if ($LASTEXITCODE -eq 0 -and "$v" -match "Python 3") { return $true }
-        } catch { }
-    }
-    foreach ($root in @("HKCU:\Software\Python\PythonCore", "HKLM:\Software\Python\PythonCore")) {
+    # DaVinci Resolve on Windows only lists .py scripts when Python 3 (64-bit) is installed for ALL users
+    foreach ($root in @("HKLM:\Software\Python\PythonCore", "HKLM:\Software\WOW6432Node\Python\PythonCore")) {
         if (Test-Path $root) {
-            if (Get-ChildItem $root | Where-Object { $_.PSChildName -like "3.*" }) { return $true }
+            foreach ($v in (Get-ChildItem $root | Where-Object { $_.PSChildName -like "3.*" })) {
+                $ip = Join-Path $v.PSPath "InstallPath"
+                if (Test-Path $ip) {
+                    $dir = (Get-ItemProperty $ip -ErrorAction SilentlyContinue)."(default)"
+                    if ($dir -and (Test-Path (Join-Path $dir "python.exe"))) { return $true }
+                }
+            }
         }
     }
     return $false
@@ -63,14 +67,27 @@ switch ($Step) {
     }
     "python" {
         if (Test-Python) { exit 0 }
-        if (Get-Command winget -ErrorAction SilentlyContinue) {
-            & winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements | Out-Null
-            if (Test-Python) { exit 0 }
-        }
         $py = Join-Path $Tmp "python.exe"
-        Get-File $PyExe $py
-        $p = Start-Process -FilePath $py -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1" -Wait -PassThru
-        if ($p.ExitCode -ne 0) { Fail "Python wasn't installed (code $($p.ExitCode)). Install it from python.org and run this again." }
+        $got = $false
+        foreach ($u in $PyUrls) {
+            try {
+                Invoke-WebRequest -Uri $u -OutFile $py -UseBasicParsing
+                if ((Get-FileHash $py -Algorithm SHA256).Hash -eq $PySha) { $got = $true; break }
+            } catch { }
+        }
+        if (-not $got) { Fail "Couldn't download Python 3. Check your internet connection and try again." }
+        # a per-user copy of the same version makes the Python installer silently "repair" it and ignore
+        # InstallAllUsers, so remove that copy first (it belongs to this user: no permission needed)
+        $userPy = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
+        if (Test-Path $userPy) {
+            Start-Process -FilePath $py -ArgumentList "/quiet /uninstall" -Wait | Out-Null
+        }
+        # all-users install (Windows asks for permission once): Resolve doesn't see per-user Python
+        try {
+            $p = Start-Process -FilePath $py -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_launcher=1" -Verb RunAs -Wait -PassThru
+        } catch { Fail "Python needs your permission to install. Run the installer again and click Yes when Windows asks." }
+        if ($p.ExitCode -ne 0) { Fail "Python wasn't installed (code $($p.ExitCode)). Run the installer again." }
+        if (-not (Test-Python)) { Fail "Python was installed but DaVinci Resolve won't see it. Install Python 3 for all users from python.org." }
         exit 0
     }
     "ytdlp" {

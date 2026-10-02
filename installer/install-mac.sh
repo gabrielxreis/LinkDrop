@@ -11,7 +11,10 @@ REPO_RAW="https://raw.githubusercontent.com/gabrielxreis/LinkDrop/main"
 DATA="$HOME/Library/Application Support/LinkDrop"
 BIN="$DATA/bin"
 UTIL="$HOME/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility"
-PY_PKG_URL="https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg"
+# Python is mirrored on the LinkDrop GitHub (release "deps"); python.org is the fallback
+PY_PKG_URLS=("https://github.com/gabrielxreis/LinkDrop/releases/download/deps/python-3.12.10-macos11.pkg"
+             "https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg")
+PY_PKG_SHA256="8373e58da4ea146b3eb1c1f9834f19a319440b6b679b06050b1f9ee3237aa8e4"
 TMP="${TMPDIR:-/tmp}/linkdrop-install"
 mkdir -p "$BIN" "$UTIL" "$TMP" || { echo "Couldn't create the LinkDrop folders." >&2; exit 1; }
 
@@ -48,8 +51,13 @@ case "$STEP" in
     ;;
   python-pkg)
     # downloads the official installer; the app runs it with administrator rights
-    get "$PY_PKG_URL" "$TMP/python.pkg"
-    echo "$TMP/python.pkg"
+    for url in "${PY_PKG_URLS[@]}"; do
+      if curl -fL --retry 3 --connect-timeout 20 -sS "$url" -o "$TMP/python.pkg" \
+          && [ "$(shasum -a 256 "$TMP/python.pkg" | cut -d' ' -f1)" = "$PY_PKG_SHA256" ]; then
+        echo "$TMP/python.pkg"; exit 0
+      fi
+    done
+    echo "Couldn't download Python 3. Check your internet connection and try again." >&2; exit 1
     ;;
   ytdlp)
     # the zipapp runs on Python 3 and starts in under a second
