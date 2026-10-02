@@ -10,3 +10,5 @@ installer/build/*.html
 installer/build/*.iconset/
 installer/build/F.iconset/
 installer/LinkDrop-Installer-*
+installer/LinkDrop-Premiere-Installer-*
+premiere/.debug

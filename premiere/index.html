@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>LinkDrop</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="glow"></div>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-paste" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+      <symbol id="i-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    </defs>
+  </svg>
+  <header>
+    <div class="dots"><i></i><i></i><i></i><i></i></div>
+    <button id="trial" class="trial" hidden></button>
+  </header>
+
+  <main>
+    <!-- license -->
+    <section id="p-license" class="page">
+      <div class="grow"></div>
+      <h1>Activate LinkDrop</h1>
+      <p class="sub">Enter your LinkDrop for Premiere Pro key.</p>
+      <input id="key" class="field" placeholder="LD-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
+      <p class="hint">No key yet? Get a free 24-hour trial key or a license (R$ 19,90 / year) on the site.</p>
+      <p id="licmsg" class="msg"></p>
+      <div class="grow"></div>
+      <nav><button id="getkey" class="btn">Get a key</button><span class="sp"></span><button id="activate" class="btn primary">Activate <svg class="ic"><use href="#i-right"/></svg></button></nav>
+    </section>
+
+    <!-- links -->
+    <section id="p-links" class="page">
+      <div class="grow"></div>
+      <h1>Add links</h1>
+      <p class="sub">Paste links from your browser, one per line. Add as many as you like.</p>
+      <textarea id="links" class="field" rows="3" placeholder="Paste one or more links, one per line" spellcheck="false"></textarea>
+      <div id="logos" class="logos"></div>
+      <p id="count" class="hint center">YouTube, Instagram, TikTok, X, Spotify and 1,000+ more sites</p>
+      <div class="grow"></div>
+      <nav><button id="paste" class="btn icon" title="Paste"><svg class="ic"><use href="#i-paste"/></svg></button><button id="opensettings" class="btn icon" title="Settings"><svg class="ic"><use href="#i-gear"/></svg></button><span class="sp"></span><button id="next0" class="btn primary" disabled>Continue <svg class="ic"><use href="#i-right"/></svg></button></nav>
+    </section>
+
+    <!-- analyzing -->
+    <section id="p-analyze" class="page">
+      <h1>Analyzing links</h1>
+      <p class="sub">We're checking your links and preparing your downloads.</p>
+      <div id="alist" class="list"></div>
+      <div class="grow"></div>
+      <p id="aprog" class="hint"></p>
+      <div class="bar"><b id="abar"></b></div>
+      <nav><button id="back1" class="btn"><svg class="ic"><use href="#i-left"/></svg> Back</button><span class="sp"></span><button id="next1" class="btn primary" disabled>Continue <svg class="ic"><use href="#i-right"/></svg></button></nav>
+    </section>
+
+    <!-- format -->
+    <section id="p-format" class="page">
+      <h1>Choose format</h1>
+      <p class="sub">Choose the best format for your workflow.</p>
+      <div class="grow"></div>
+      <div class="seg"><button data-mode="audio">Audio</button><button data-mode="video">Video</button></div>
+      <div id="fmt-video" class="tiles">
+        <button class="tile" data-v="h264"><b>H.264</b><span>MP4, compatible</span></button>
+        <button class="tile" data-v="prores"><b>ProRes 422</b><span>MOV, for editing</span></button>
+      </div>
+      <div id="fmt-audio" class="tiles">
+        <button class="tile" data-a="mp3"><b>MP3</b><span>Small, compatible</span></button>
+        <button class="tile" data-a="wav"><b>WAV</b><span>Lossless</span></button>
+        <button class="tile" data-a="aac"><b>AAC</b><span>Efficient</span></button>
+      </div>
+      <div class="row"><span>Quality</span><select id="quality" class="select"></select></div>
+      <div class="row"><span>Place in</span><select id="target" class="select">
+        <option value="0">Playhead (free track)</option><option value="1">End of sequence</option>
+        <option value="2">New sequence</option><option value="3">Project only</option></select></div>
+      <div class="grow"></div>
+      <nav><button id="back2" class="btn"><svg class="ic"><use href="#i-left"/></svg> Back</button><span class="sp"></span><button id="start" class="btn primary">Download <svg class="ic"><use href="#i-right"/></svg></button></nav>
+    </section>
+
+    <!-- downloading -->
+    <section id="p-run" class="page">
+      <h1>Downloading</h1>
+      <p class="sub">Your media is being prepared for Premiere Pro.</p>
+      <div class="card hero"><div><div class="big"><span id="pct">0</span><small>%</small></div><span class="hint">Overall progress</span></div>
+        <div class="right"><b id="files" style="font-weight:500">0 of 0 files</b><span id="status" class="hint"></span></div>
+        <div class="bar"><b id="obar"></b></div></div>
+      <div id="dlist" class="list"></div>
+      <div class="grow"></div>
+      <nav><span class="sp"></span><button id="cancel" class="btn"><svg class="ic"><use href="#i-x"/></svg> Cancel All</button></nav>
+    </section>
+
+    <!-- done -->
+    <section id="p-done" class="page">
+      <div class="grow"></div>
+      <div class="check"><svg><use href="#i-check"/></svg></div>
+      <h1 class="center">All done</h1>
+      <p id="donemsg" class="sub center"></p>
+      <div class="grow"></div>
+      <nav><button id="openfolder" class="btn icon" title="Open folder"><svg class="ic"><use href="#i-folder"/></svg></button><span class="sp"></span><button id="donebtn" class="btn primary">Done</button></nav>
+    </section>
+
+    <!-- settings -->
+    <section id="p-settings" class="page">
+      <h1>Settings</h1>
+      <p class="sub">Saved for next time.</p>
+      <div class="row"><span id="folder" class="path"></span><button id="browse" class="btn small">Browse</button></div>
+      <p id="licinfo" class="hint"></p>
+      <div class="grow"></div>
+      <nav><button id="deactivate" class="btn">Deactivate this computer</button><span class="sp"></span><button id="settingsdone" class="btn primary">Done</button></nav>
+    </section>
+  </main>
+
+  <footer><button id="footfolder" class="link" title="Download folder"><svg class="ic"><use href="#i-folder"/></svg></button><button id="insta" class="link insta">@gabrielxreis_</button><span id="ver" class="ver"></span></footer>
+
+  <script src="js/CSInterface.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

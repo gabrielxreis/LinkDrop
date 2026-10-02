@@ -16,7 +16,7 @@ PY_PKG_URLS=("https://github.com/gabrielxreis/LinkDrop/releases/download/deps/py
              "https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg")
 PY_PKG_SHA256="8373e58da4ea146b3eb1c1f9834f19a319440b6b679b06050b1f9ee3237aa8e4"
 TMP="${TMPDIR:-/tmp}/linkdrop-install"
-mkdir -p "$BIN" "$UTIL" "$TMP" || { echo "Couldn't create the LinkDrop folders." >&2; exit 1; }
+mkdir -p "$BIN" "$TMP" || { echo "Couldn't create the LinkDrop folders." >&2; exit 1; }
 
 get() {
   curl -fL --retry 3 --connect-timeout 20 -sS "$1" -o "$2" \
@@ -85,6 +85,7 @@ case "$STEP" in
     ;;
   script)
     # always the latest LinkDrop from GitHub; the copy inside the app is only an offline fallback
+    mkdir -p "$UTIL" || { echo "Couldn't create Resolve's Scripts folder." >&2; exit 1; }
     if curl -fL --retry 3 --connect-timeout 20 -sS "$REPO_RAW/LinkDrop.py?t=$(date +%s)" -o "$TMP/LinkDrop.py" \
         && grep -q '^VERSION = ' "$TMP/LinkDrop.py"; then
       cp "$TMP/LinkDrop.py" "$UTIL/LinkDrop.py" || { echo "Couldn't copy LinkDrop into Resolve's Scripts folder." >&2; exit 1; }

@@ -1,30 +1,44 @@
 #!/bin/bash
 # Builds installer/LinkDrop-Installer-mac.dmg (Install LinkDrop.app on a branded background).
+# "build-mac.sh premiere" builds installer/LinkDrop-Premiere-Installer-mac.dmg (Install LinkDrop for Premiere.app).
 # Needs: macOS, Google Chrome (icon/background renders already in build/), Finder automation allowed.
 set -e
 cd "$(dirname "$0")"
 B=build
-APP="$B/Install LinkDrop.app"
-VERSION="$(sed -n 's/^VERSION = "\(.*\)"/\1/p' ../LinkDrop.py | head -1)"
+if [ "$1" = "premiere" ]; then
+  PRODUCT=premiere; NAME="Install LinkDrop for Premiere"; VOL="LinkDrop for Premiere"; DMG=LinkDrop-Premiere-Installer-mac.dmg; BG=background-premiere.tiff
+  VERSION="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' ../premiere/CSXS/manifest.xml | head -1)"
+else
+  PRODUCT=resolve; NAME="Install LinkDrop"; VOL="LinkDrop"; DMG=LinkDrop-Installer-mac.dmg; BG=background.tiff
+  VERSION="$(sed -n 's/^VERSION = "\(.*\)"/\1/p' ../LinkDrop.py | head -1)"
+fi
+APP="$B/$NAME.app"
 
 rm -rf "$APP"
 mkdir -p "$B/swift" "$APP/Contents/MacOS" "$APP/Contents/Resources"
 for a in arm64 x86_64; do
   swiftc -O -parse-as-library -target $a-apple-macos13.0 InstallerApp.swift -o "$B/swift/inst-$a"
 done
-lipo -create "$B/swift/inst-arm64" "$B/swift/inst-x86_64" -output "$APP/Contents/MacOS/Install LinkDrop"
+lipo -create "$B/swift/inst-arm64" "$B/swift/inst-x86_64" -output "$APP/Contents/MacOS/$NAME"
 R="$APP/Contents/Resources"
-cp install-mac.sh ../LinkDrop.py "$R/"
-chmod +x "$R/install-mac.sh"
+cp install-mac.sh "$R/"
+if [ "$PRODUCT" = premiere ]; then
+  cp install-premiere-mac.sh "$R/"
+  rsync -a --exclude .debug --exclude .DS_Store ../premiere/ "$R/premiere/"   # offline fallback copy of the panel
+else
+  cp ../LinkDrop.py "$R/"
+fi
+chmod +x "$R"/*.sh
 cp "$B/LinkDropFull.icns" "$R/AppIcon.icns"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleName</key><string>Install LinkDrop</string>
-  <key>CFBundleDisplayName</key><string>Install LinkDrop</string>
-  <key>CFBundleExecutable</key><string>Install LinkDrop</string>
-  <key>CFBundleIdentifier</key><string>com.gabrielxreis.linkdrop.installer</string>
+  <key>CFBundleName</key><string>$NAME</string>
+  <key>CFBundleDisplayName</key><string>$NAME</string>
+  <key>CFBundleExecutable</key><string>$NAME</string>
+  <key>CFBundleIdentifier</key><string>com.gabrielxreis.linkdrop.installer.$PRODUCT</string>
+  <key>LDProduct</key><string>$PRODUCT</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
@@ -36,15 +50,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 codesign --force --deep -s - "$APP" 2>/dev/null
 
-rm -rf "$B/stage" "$B/rw.dmg" LinkDrop-Installer-mac.dmg
+rm -rf "$B/stage" "$B/rw.dmg" "$DMG"
+[ -d "/Volumes/$VOL" ] && hdiutil detach -quiet "/Volumes/$VOL"
 mkdir -p "$B/stage/.background"
 cp -R "$APP" "$B/stage/"
-cp "$B/background.tiff" "$B/stage/.background/"
-hdiutil create -quiet -srcfolder "$B/stage" -volname "LinkDrop" -fs HFS+ -format UDRW -size 60m "$B/rw.dmg"
+cp "$B/$BG" "$B/stage/.background/background.tiff"
+hdiutil create -quiet -srcfolder "$B/stage" -volname "$VOL" -fs HFS+ -format UDRW -size 60m "$B/rw.dmg"
 DEV=$(hdiutil attach -readwrite -noverify -noautoopen "$B/rw.dmg" 2>/dev/null | grep -E '^/dev/' | head -1 | awk '{print $1}')
-osascript <<'EOF'
+osascript <<EOF
 tell application "Finder"
-  tell disk "LinkDrop"
+  tell disk "$VOL"
     open
     set current view of container window to icon view
     set toolbar visible of container window to false
@@ -55,17 +70,17 @@ tell application "Finder"
     set icon size of viewOptions to 128
     set text size of viewOptions to 13
     set background picture of viewOptions to file ".background:background.tiff"
-    set position of item "Install LinkDrop.app" of container window to {320, 214}
+    set position of item "$NAME.app" of container window to {320, 214}
     update without registering applications
     delay 1
     close
   end tell
 end tell
 EOF
-SetFile -a V /Volumes/LinkDrop/.background 2>/dev/null || true
+SetFile -a V "/Volumes/$VOL/.background" 2>/dev/null || true
 sync
 hdiutil detach -quiet "$DEV"
-hdiutil convert -quiet "$B/rw.dmg" -format UDZO -imagekey zlib-level=9 -o LinkDrop-Installer-mac.dmg
+hdiutil convert -quiet "$B/rw.dmg" -format UDZO -imagekey zlib-level=9 -o "$DMG"
 rm -f "$B/rw.dmg"
 rm -rf "$B/stage"
-echo "Built LinkDrop-Installer-mac.dmg (LinkDrop $VERSION)"
+echo "Built $DMG ($PRODUCT $VERSION)"

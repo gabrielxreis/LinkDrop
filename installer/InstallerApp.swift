@@ -10,6 +10,20 @@ struct Step: Identifiable {
     enum State { case waiting, running, done, failed }
 }
 
+/// Which plugin this build installs: Info.plist key LDProduct ("resolve" or "premiere").
+struct Product {
+    let premiere = (Bundle.main.object(forInfoDictionaryKey: "LDProduct") as? String) == "premiere"
+    var host: String { premiere ? "Premiere Pro" : "DaVinci Resolve" }
+    var script: String { premiere ? "install-premiere-mac" : "install-mac" }
+    var installTitle: String { premiere ? "Installing LinkDrop for Premiere from GitHub" : "Installing LinkDrop from GitHub" }
+    var howTo: String {
+        premiere
+            ? "In Premiere Pro, open Window > Extensions > LinkDrop.\nIf Premiere was open, restart it once."
+            : "In DaVinci Resolve, open Workspace > Scripts > LinkDrop.\nIf Resolve was open, restart it once.\n\nLinkDrop updates itself every time it opens."
+    }
+}
+let product = Product()
+
 @MainActor
 final class Installer: ObservableObject {
     @Published var steps: [Step] = [
@@ -19,7 +33,7 @@ final class Installer: ObservableObject {
         Step(id: "ytdlp", title: "Downloading yt-dlp"),
         Step(id: "ffmpeg", title: "Downloading ffmpeg"),
         Step(id: "deno", title: "Downloading deno"),
-        Step(id: "script", title: "Installing LinkDrop from GitHub"),
+        Step(id: "script", title: product.installTitle),
     ]
     @Published var phase: Phase = .ready
     @Published var error = ""
@@ -37,12 +51,12 @@ final class Installer: ObservableObject {
         }
         switch s.id {
         case "detect", "clean": return "Preparing"
-        case "script": return "Adding LinkDrop to DaVinci Resolve"
+        case "script": return "Adding LinkDrop to \(product.host)"
         default: return "Installing components"
         }
     }
 
-    private var script: String { Bundle.main.path(forResource: "install-mac", ofType: "sh") ?? "" }
+    private var script: String { Bundle.main.path(forResource: product.script, ofType: "sh") ?? "" }
 
     func start() {
         guard phase != .running else { return }
@@ -70,7 +84,7 @@ final class Installer: ObservableObject {
 
             set("python", .running)
             if try await sh("python").contains("missing") {
-                set("python", .running, title: "Installing Python 3 (DaVinci Resolve needs it)")
+                set("python", .running, title: "Installing Python 3 (LinkDrop needs it)")
                 let pkg = try await sh("python-pkg").trimmingCharacters(in: .whitespacesAndNewlines)
                 try await admin("installer -pkg '\(pkg)' -target /")
             }
@@ -225,25 +239,25 @@ struct ContentView: View {
 
     var title: String {
         switch installer.phase {
-        case .done: return "LinkDrop is installed"
+        case .done: return product.premiere ? "LinkDrop for Premiere is installed" : "LinkDrop is installed"
         case .failed: return "Installation stopped"
-        case .running: return "Installing LinkDrop"
-        case .ready: return "Install LinkDrop"
+        case .running: return product.premiere ? "Installing LinkDrop for Premiere" : "Installing LinkDrop"
+        case .ready: return product.premiere ? "Install LinkDrop for Premiere" : "Install LinkDrop"
         }
     }
 
     var subtitle: String {
         switch installer.phase {
-        case .done: return installer.installedVersion.isEmpty ? "Ready in DaVinci Resolve." : "Version \(installer.installedVersion), ready in DaVinci Resolve."
+        case .done: return installer.installedVersion.isEmpty ? "Ready in \(product.host)." : "Version \(installer.installedVersion), ready in \(product.host)."
         case .failed: return "Something went wrong. You can try again."
         case .running: return "This takes about a minute."
-        case .ready: return "Download links straight into DaVinci Resolve."
+        case .ready: return "Download links straight into \(product.host)."
         }
     }
 
     var readyView: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("LinkDrop will be added to DaVinci Resolve with everything it needs. Any previous version is replaced. Your settings are kept.")
+            Text("LinkDrop will be added to \(product.host) with everything it needs. Any previous version is replaced. Your settings are kept.")
                 .font(.system(size: 13)).foregroundStyle(Color.text2).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -277,7 +291,7 @@ struct ContentView: View {
                     .shadow(color: Color.ok.opacity(0.6), radius: 8)
                 Text("All set").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
             }
-            Text("In DaVinci Resolve, open Workspace > Scripts > LinkDrop.\nIf Resolve was open, restart it once.\n\nLinkDrop updates itself every time it opens.")
+            Text(product.howTo)
                 .font(.system(size: 13)).foregroundStyle(Color.text2).fixedSize(horizontal: false, vertical: true)
         }
         .transition(.opacity)
@@ -309,7 +323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct InstallLinkDropApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     var body: some Scene {
-        WindowGroup("Install LinkDrop") { ContentView() }
+        WindowGroup(product.premiere ? "Install LinkDrop for Premiere" : "Install LinkDrop") { ContentView() }
             .windowResizability(.contentSize)
             .windowStyle(.hiddenTitleBar)
     }

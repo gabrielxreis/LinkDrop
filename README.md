@@ -1,8 +1,10 @@
-# LinkDrop for DaVinci Resolve
+# LinkDrop for DaVinci Resolve and Premiere Pro
 
 Paste a link, get the clip on your timeline.
 
 LinkDrop is a DaVinci Resolve script that downloads videos or audio from links and drops them right where you need them: at the playhead, at the end of the timeline, in a new timeline or only in the Media Pool. Works on macOS and Windows.
+
+**LinkDrop for Premiere Pro** is a panel with the same flow for Adobe Premiere Pro (2024 or newer). It has its own license, separate from the DaVinci Resolve one.
 
 ## How it works
 
@@ -23,6 +25,8 @@ YouTube, YouTube Music, Instagram, TikTok, X, Facebook, Vimeo, SoundCloud, Twitc
 
 Video services with DRM (Netflix, Prime Video, Disney+, Max) can't be downloaded.
 
+**YouTube asking to confirm you're not a bot:** LinkDrop then uses the YouTube login of a browser on your computer (Chrome, Brave, Edge, Firefox or Safari) and remembers the one that worked. Be signed in to YouTube in one of them. On Windows, use Firefox (Chrome and Edge protect their logins there).
+
 ## License
 
 LinkDrop needs a license key, entered once per computer.
@@ -39,17 +43,19 @@ LinkDrop needs a license key, entered once per computer.
 |---|---|
 | **macOS** | [LinkDrop-Installer-mac.dmg](https://github.com/gabrielxreis/LinkDrop/releases/latest/download/LinkDrop-Installer-mac.dmg) |
 | **Windows** | [LinkDrop-Installer-windows.exe](https://github.com/gabrielxreis/LinkDrop/releases/latest/download/LinkDrop-Installer-windows.exe) |
+| **Premiere Pro, macOS** | [LinkDrop-Premiere-Installer-mac.dmg](https://github.com/gabrielxreis/LinkDrop/releases/latest/download/LinkDrop-Premiere-Installer-mac.dmg) |
+| **Premiere Pro, Windows** | [LinkDrop-Premiere-Installer-windows.exe](https://github.com/gabrielxreis/LinkDrop/releases/latest/download/LinkDrop-Premiere-Installer-windows.exe) |
 
 - **macOS:** open the DMG and double-click **Install LinkDrop**. The first time, macOS may block it: right-click the app and choose **Open**.
 - **Windows:** run the installer. If SmartScreen appears, click **More info > Run anyway**.
 
-Then in DaVinci Resolve: **Workspace > Scripts > LinkDrop**, or press **Ctrl + Shift + +** on a Mac (after restarting Resolve once).
+Then in DaVinci Resolve: **Workspace > Scripts > LinkDrop**, or press **Ctrl + Shift + +** on a Mac (after restarting Resolve once). In Premiere Pro: **Window > Extensions > LinkDrop** (restart Premiere once after installing).
 
 The installer removes any previous version (your settings are kept) and downloads everything fresh, including the latest LinkDrop from this repository. No admin rights needed, except on a Mac that doesn't have Python 3 yet.
 
 ## Updates
 
-- **LinkDrop updates itself** every time it opens: it checks this repo, installs the newer version and opens it right away. Offline, it opens the installed version.
+- **LinkDrop updates itself** every time it opens: it checks this repo, installs the newer version and opens it right away. Offline, it opens the installed version. The Premiere panel does the same with the `premiere/` folder.
 - **The downloader (yt-dlp) updates itself** once a day in the background, so sites keep working.
 
 ## Design
@@ -67,7 +73,9 @@ Premium dark glass: deep black with electric-blue light on the edges, emerald fo
 
 Bump `VERSION` in `LinkDrop.py` and push to `main`. Keep the file ASCII-only (use `\u` escapes) so older versions can always read the update.
 
-To refresh the installers: `installer/build-mac.sh`, then `LANG=en_US.UTF-8 makensis -DVERSION=x.y.z installer/windows/LinkDrop.nsi`, then attach both files to a new GitHub release (`gh release create vX.Y.Z installer/LinkDrop-Installer-*`).
+Premiere panel: bump `ExtensionBundleVersion` in `premiere/CSXS/manifest.xml` (and `VERSION` in `premiere/js/main.js`) and push to `main`.
+
+To refresh the installers: `installer/build-mac.sh`, then `LANG=en_US.UTF-8 makensis -DVERSION=x.y.z installer/windows/LinkDrop.nsi`, then attach both files to a new GitHub release (`gh release create vX.Y.Z installer/LinkDrop-Installer-*`). Premiere installers: `installer/build-mac.sh premiere` and `makensis -DVERSION=x.y.z installer/windows/LinkDrop-Premiere.nsi`.
 
 ---
 

@@ -23,7 +23,7 @@ import shutil
 import subprocess
 
 APP_TITLE = "LinkDrop"
-VERSION = "2.5.1"
+VERSION = "2.5.2"
 REPO = "gabrielxreis/LinkDrop"
 RAW_URL = "https://raw.githubusercontent.com/%s/main/LinkDrop.py" % REPO
 INSTAGRAM_URL = "https://instagram.com/gabrielxreis_"
@@ -473,6 +473,47 @@ def human_duration(sec):
     return "%d:%02d:%02d" % (h, m, s) if h else "%d:%02d" % (m, s)
 
 
+# YouTube sometimes answers "Sign in to confirm you're not a bot" (or asks to confirm the age). yt-dlp can then use
+# the YouTube login of a browser on this computer. The browser that worked is remembered and tried first next time.
+COOKIE_FILE = os.path.join(DATA_DIR, "cookie-browser.txt")
+LOGIN_ERROR = re.compile(r"not a bot|Sign in to confirm|confirm your age|cookies-from-browser", re.I)
+
+
+def cookie_browsers():
+    if IS_WIN:
+        local, roaming = os.environ.get("LOCALAPPDATA", ""), os.environ.get("APPDATA", "")
+        found = [b for b, d in (("firefox", os.path.join(roaming, "Mozilla", "Firefox", "Profiles")),
+                                ("chrome", os.path.join(local, "Google", "Chrome", "User Data")),
+                                ("edge", os.path.join(local, "Microsoft", "Edge", "User Data")),
+                                ("brave", os.path.join(local, "BraveSoftware", "Brave-Browser", "User Data")))
+                 if os.path.isdir(d)]
+    else:
+        apps = (("chrome", "Google Chrome"), ("brave", "Brave Browser"), ("edge", "Microsoft Edge"),
+                ("firefox", "Firefox"), ("vivaldi", "Vivaldi"), ("opera", "Opera"), ("chromium", "Chromium"))
+        found = [b for b, n in apps if any(os.path.isdir(os.path.join(d, n + ".app"))
+                                           for d in ("/Applications", os.path.join(HOME, "Applications")))]
+        found.append("safari")
+    try:
+        with open(COOKIE_FILE, encoding="utf-8") as f:
+            last = f.read().strip()
+    except Exception:
+        last = ""
+    return ([last] if last in found else []) + [b for b in found if b != last]
+
+
+def remember_cookie_browser(browser):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(COOKIE_FILE, "w", encoding="utf-8") as f:
+            f.write(browser)
+    except Exception:
+        pass
+
+
+LOGIN_HELP = ("YouTube asked to confirm you're not a bot. Sign in to YouTube in Chrome, Firefox or Safari "
+              "on this computer, then try again.")
+
+
 class Analyzer(Proc):
     """Reads a link's real metadata with yt-dlp -J (title, duration, thumbnail, available
     resolutions, file sizes) before anything is downloaded."""
@@ -486,6 +527,7 @@ class Analyzer(Proc):
         self.matched = None
         self.thumb = None
         self.tail = []
+        self.cookies = None
 
     def start(self):
         self.state = "analyzing"
@@ -529,9 +571,11 @@ class Analyzer(Proc):
         self.matched = song
         self._probe("ytsearch1:%s audio" % song)
 
-    def _probe(self, target):
+    def _probe(self, target, browser=None):
+        self.target, self.cookies = target, browser
         self.tail = []
-        self._spawn(ytdlp_cmd() + ["-J", "--no-playlist", "--no-warnings", "--encoding", "utf-8", target],
+        extra = ["--cookies-from-browser", browser] if browser else []
+        self._spawn(ytdlp_cmd() + ["-J", "--no-playlist", "--no-warnings", "--encoding", "utf-8"] + extra + [target],
                     self._probe_done, merge=False)
 
     def _probe_done(self, code):
@@ -546,8 +590,18 @@ class Analyzer(Proc):
             info = None
         if code != 0 or not info:
             errs = [l for l in self._read(self.err_path).splitlines() if "ERROR" in l]
+            if errs and LOGIN_ERROR.search(errs[-1]):
+                # try the YouTube login of each browser on this computer, one after the other
+                if not hasattr(self, "browsers"):
+                    self.browsers = cookie_browsers()
+                if self.browsers:
+                    return self._probe(self.target, self.browsers.pop(0))
+                self.state = "failed"
+                return self._fail(LOGIN_HELP)
             self.state = "failed"
             return self._fail(clean_error(errs[-1]) if errs else "This link couldn't be read.")
+        if self.cookies:
+            remember_cookie_browser(self.cookies)
         self.info = info
         self._thumbnail()
 
@@ -726,6 +780,8 @@ class Job(Proc):
                     "--merge-output-format", "mp4"]
             if o.get("keep_meta"):
                 cmd += ["--embed-metadata"]
+        if o.get("cookies"):
+            cmd += ["--cookies-from-browser", o["cookies"]]
         cmd.append(target)
         self.part = 0
         self.tail = []
@@ -765,9 +821,20 @@ class Job(Proc):
             self.retried = True
             self.status = "Retrying"
             return self._download(self.url)
+        if code != 0 and not self.cancelled and any(LOGIN_ERROR.search(l) for l in self.tail):
+            # YouTube started asking for a login between the analysis and the download
+            if not hasattr(self, "browsers"):
+                self.browsers = [b for b in cookie_browsers() if b != self.opts.get("cookies")]
+            if self.browsers:
+                self.opts["cookies"] = self.browsers.pop(0)
+                self.status = "Retrying"
+                return self._download(self.url)
+            return self._fail(LOGIN_HELP)
         if code != 0 or not self.path or not os.path.exists(self.path):
             errs = [l for l in self.tail if "ERROR" in l] or self.tail[-2:]
             return self._fail(clean_error(errs[-1]) if errs else "The download didn't finish.")
+        if self.opts.get("cookies"):
+            remember_cookie_browser(self.opts["cookies"])
         if self.audio_only:
             return self._finish()
         if self.opts.get("vcodec") == "prores":
@@ -2386,7 +2453,8 @@ def main():
              "keep_meta": st["keep_meta"], "embed_art": st["embed_art"] and st["audio_fmt"] != "wav",
              "max_h": st["max_h"] or None, "vcodec": st["vcodec"], "subfolders": st["subfolders"],
              "subfolder_name": st["subname"],
-             "duration": e["a"].duration(), "origin": e["a"].url, "matched": e["a"].matched, "name": None}
+             "duration": e["a"].duration(), "origin": e["a"].url, "matched": e["a"].matched, "name": None,
+             "cookies": e["a"].cookies}
         if st["custom"] and st["custom_name"].strip() and index is not None:
             base = re.sub(r'[\\/:*?"<>|]', "-", st["custom_name"].strip())
             o["name"] = base if count == 1 else "%s %02d" % (base, index + 1)

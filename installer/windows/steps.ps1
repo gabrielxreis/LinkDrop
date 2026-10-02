@@ -44,7 +44,7 @@ function Test-Python {
 }
 
 try {
-    New-Item -ItemType Directory -Force -Path $Bin, $Util, $Tmp | Out-Null
+    New-Item -ItemType Directory -Force -Path $Bin, $Tmp | Out-Null
 } catch { Fail "Couldn't create the LinkDrop folders: $($_.Exception.Message)" }
 
 switch ($Step) {
@@ -114,6 +114,7 @@ switch ($Step) {
     }
     "script" {
         # always the latest LinkDrop from GitHub; the copy inside the installer is only an offline fallback
+        New-Item -ItemType Directory -Force -Path $Util | Out-Null
         $dest = Join-Path $Util "LinkDrop.py"
         $dl = Join-Path $Tmp "LinkDrop.py"
         $ok = $false
